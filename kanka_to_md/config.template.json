@@ -1,0 +1,6 @@
+{
+  "include_private": false,
+  "api_token": "INSERT your Kanka API token here",
+  "campaign_id": 123456,
+  "export_dir": "./kanka_exports"
+} 

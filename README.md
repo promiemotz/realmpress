@@ -1,6 +1,3 @@
-# realmpress
-A kanka.io exporter, which can turn your RPG world's data into different file format and upload it to some repository for your palyers
-
 # RealmPress - Turn Your Kanka Campaign Into Beautiful Documents
 
 **RealmPress** is a tool that takes all your Kanka campaign data (characters, locations, events, etc.) and turns it into beautiful, professional documents that you can share with your players or print out.
@@ -48,15 +45,71 @@ pip install -r requirements.txt
 4. Copy the token
 
 ### Step 5: Configure RealmPress
-1. Open `kanka_to_md/config.json` in a text editor
-2. Replace the placeholder values with your actual Kanka information:
-```json
-{
-    "api_token": "your-kanka-api-token-here",
-    "campaign_id": "your-campaign-id-here",
-    "include_private": false
-}
-```
+
+#### Option A: Using API (Recommended for small campaigns)
+1. Copy the template file:
+   ```bash
+   cp kanka_to_md/config.template.json kanka_to_md/config.json
+   ```
+2. Edit `kanka_to_md/config.json` and replace the placeholder values:
+   ```json
+   {
+       "api_token": "your-kanka-api-token-here",
+       "campaign_id": "your-campaign-id-here",
+       "include_private": false
+   }
+   ```
+
+3. Copy the last run template:
+   ```bash
+   cp kanka_to_md/last_run.template.json kanka_to_md/last_run.json
+   ```
+
+#### Option B: Using Manual ZIP Export (Recommended for large campaigns)
+If you have a large campaign with many entities, the API method can be slow due to rate limits. You can use Kanka's manual export instead:
+
+1. **Export from Kanka:**
+   - Go to your Kanka campaign
+   - Click on your profile picture → "Export"
+   - Choose "Campaign Export" and download the ZIP file
+
+2. **Extract the ZIP:**
+   - Extract the ZIP file to `kanka_to_md/kanka_jsons/`
+   - The folder structure should look like:
+     ```
+     kanka_to_md/kanka_jsons/
+     ├── characters/
+     ├── locations/
+     ├── events/
+     ├── items/
+     ├── notes/
+     └── ... (other folders)
+     ```
+
+3. **Configure for manual mode:**
+   ```json
+   {
+       "api_token": "not-needed-for-manual-export",
+       "campaign_id": "your-campaign-id-here",
+       "include_private": false,
+       "manual_export": true
+   }
+   ```
+
+4. **Set up last run tracking:**
+   ```bash
+   cp kanka_to_md/last_run.template.json kanka_to_md/last_run.json
+   ```
+
+**Why use manual export?**
+- **Faster**: No API rate limits to wait for
+- **Complete**: Gets all data at once
+- **Reliable**: No network issues or timeouts
+- **Offline**: Works without internet connection
+
+**When to use API vs Manual Export:**
+- **Use API**: Small campaigns (< 100 entities), frequent updates
+- **Use Manual Export**: Large campaigns (> 100 entities), one-time exports, slow internet
 
 ### Step 6: Run RealmPress
 Choose one of these methods:
@@ -133,10 +186,55 @@ If you don't want to upload to Google Drive:
 - Check that your campaign ID is correct in the config file
 - Make sure your API token has access to the campaign
 - Try running the script again (it might need to download data first)
+- If using manual export, make sure the ZIP file is extracted to `kanka_to_md/kanka_jsons/`
+
+### "API rate limit exceeded" or "Download taking too long"
+- Consider using manual ZIP export instead of API
+- Large campaigns can take hours to download via API due to rate limits
+- Manual export gets all data at once and is much faster
+
+## Configuration Details
+
+### Last Run Configuration
+The `last_run.json` file tells RealmPress when it last downloaded data. This helps it only download new or updated content:
+
+**File:** `kanka_to_md/last_run.json`
+```json
+{
+    "last_run": "2000-01-01T00:00:00+00:00"
+}
+```
+
+**What this means:**
+- **First time**: Use `"2000-01-01T00:00:00+00:00"` to download everything
+- **Subsequent runs**: The script automatically updates this timestamp
+- **Manual export**: Set to `"2000-01-01T00:00:00+00:00"` to process all files
+
+**Performance impact:**
+- **API mode**: Only downloads entities changed since last run (faster)
+- **Manual mode**: Processes all files in the `kanka_jsons/` folder
+
+### Performance Tips
+
+#### For Large Campaigns (> 100 entities)
+1. **Use manual ZIP export** instead of API
+2. **Extract ZIP to `kanka_to_md/kanka_jsons/`**
+3. **Set `manual_export: true` in config**
+4. **This can save hours of waiting time**
+
+#### For Small Campaigns (< 100 entities)
+1. **Use API mode** for automatic updates
+2. **Set `last_run` to `"2000-01-01T00:00:00+00:00"` for first run**
+3. **Subsequent runs will be faster** (only new content)
+
+#### API Rate Limits
+- Kanka limits API calls to prevent server overload
+- Large campaigns can take 2-6 hours to download via API
+- Manual export bypasses these limits entirely
 
 ## Advanced Features
 
-### Using the GUI
+### Using the GUI (not yet available)
 If you prefer a graphical interface:
 ```bash
 python kanka_to_md/gui.py
@@ -206,3 +304,6 @@ This project is licensed under the **MIT License**. This means:
 The MIT License is one of the most permissive open source licenses, giving you maximum freedom to use, modify, and distribute the software.
 
 See the LICENSE file for full details. 
+
+### AI use in the project
+This project was quickly prototyped with Cursor. 
