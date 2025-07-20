@@ -27,17 +27,23 @@ def build_entity_map(entries: List[Dict[str, Any]]) -> Dict[int, Dict[str, str]]
     return entity_map
 
 
-def get_type_id_sets() -> Dict[str, Set[int]]:
+def get_type_id_sets() -> Dict[str, set]:
     """Return a dictionary of type_id sets for each entity type."""
     return {
         'CHARACTER_TYPE_IDS': {1},
-        'LOCATION_TYPE_IDS': {3, 7},
-        'EVENT_TYPE_IDS': {10, 12, 18},
+        'FAMILY_TYPE_IDS': {2},
+        'LOCATION_TYPE_IDS': {3},
         'ORGANIZATION_TYPE_IDS': {4},
         'ITEM_TYPE_IDS': {5},
-        'FAMILY_TYPE_IDS': {2},
         'NOTE_TYPE_IDS': {6},
+        'EVENT_TYPE_IDS': {7},
+        'CALENDAR_TYPE_IDS': {8},
         'RACE_TYPE_IDS': {9},
+        'QUEST_TYPE_IDS': {10},
+        'JOURNAL_TYPE_IDS': {11},
+        'TAG_TYPE_IDS': {12},
+        'MAP_TYPE_IDS': {17},
+        'TIMELINE_TYPE_IDS': {18},
     }
 
 

@@ -1,5 +1,6 @@
 {
   "include_private": false,
+  "language": "en",
   "api_token": "INSERT your Kanka API token here",
   "campaign_id": 123456,
   "export_dir": "./kanka_exports"

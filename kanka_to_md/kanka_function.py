@@ -18,7 +18,7 @@ import requests
 import json
 import logging
 from datetime import datetime, timezone
-from markdown_utils import create_anchor_label
+from .markdown_utils import create_anchor_label
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.json')
 LAST_RUN_PATH = os.path.join(os.path.dirname(__file__), 'last_run.json')
@@ -144,6 +144,7 @@ type_endpoint_map = {
     'race': 'races',
     'quest': 'quests',
     'map': 'maps',
+    'journal': 'journals',
 }
 
 
@@ -267,9 +268,63 @@ def fetch_and_save_updated_entities():
     last_run = load_last_run_time()
     logger.info(f"Last run time: {last_run}")
     logger.info("Fetching entities that were updated since last run...")
+    
+    # Add detailed path logging
+    current_dir = os.getcwd()
+    logger.info(f"🔍 KANKA PATH DIAGNOSTICS:")
+    logger.info(f"   Current working directory: {current_dir}")
+    logger.info(f"   Script location: {os.path.dirname(os.path.abspath(__file__))}")
+    
     kanka_raw_jsons_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'kanka_raw_jsons')
     kanka_jsons_dir = os.path.join(os.path.dirname(__file__), 'kanka_jsons')
+    
+    logger.info(f"   Raw JSONs directory: {kanka_raw_jsons_dir}")
+    logger.info(f"   Combined JSONs directory: {kanka_jsons_dir}")
+    
+    # Check if directories exist and are accessible
+    dir_checks = [
+        ("Raw JSONs", kanka_raw_jsons_dir),
+        ("Combined JSONs", kanka_jsons_dir)
+    ]
+    
+    for name, dir_path in dir_checks:
+        logger.info(f"   🔍 Checking {name} directory...")
+        if os.path.exists(dir_path):
+            logger.info(f"   ✅ {name} directory exists: {dir_path}")
+            if os.path.isdir(dir_path):
+                logger.info(f"   ✅ {name} is a directory")
+                try:
+                    contents = os.listdir(dir_path)
+                    logger.info(f"   📁 {name} contents ({len(contents)} items): {contents[:10]}{'...' if len(contents) > 10 else ''}")
+                    
+                    # Check for write permissions
+                    try:
+                        test_file = os.path.join(dir_path, 'test_write.tmp')
+                        with open(test_file, 'w') as f:
+                            f.write('test')
+                        os.remove(test_file)
+                        logger.info(f"   ✅ {name} directory is writable")
+                    except Exception as e:
+                        logger.warning(f"   ⚠️ {name} directory write permission issue: {e}")
+                        
+                except Exception as e:
+                    logger.warning(f"   ⚠️ Could not list {name} contents: {e}")
+            else:
+                logger.error(f"   ❌ {name} exists but is not a directory!")
+        else:
+            logger.warning(f"   ⚠️ {name} directory does not exist: {dir_path}")
+            # Try to create it
+            try:
+                os.makedirs(dir_path, exist_ok=True)
+                logger.info(f"   ✅ Created {name} directory: {dir_path}")
+            except Exception as e:
+                logger.error(f"   ❌ Could not create {name} directory: {e}")
+    
+    logger.info(f"🔍 END KANKA PATH DIAGNOSTICS")
+    
     all_entities = fetch_all_entities(base_url, headers)
+    logger.info(f"Fetched {len(all_entities)} entities from API")
+    
     total_saved = 0
     for entity in filter_updated_entities(all_entities, last_run):
         endpoint, child_id, child_data = fetch_full_entity_data(entity, campaign_id, headers)
@@ -280,6 +335,8 @@ def fetch_and_save_updated_entities():
         combined_out_dir = os.path.join(kanka_jsons_dir, endpoint)
         save_combined_entity_data(combined_out_dir, entity, child_data)
         total_saved += 1
+        logger.debug(f"✅ Saved entity {entity.get('id')} ({entity.get('name', 'unnamed')}) to {endpoint}")
+    
     logger.info(f"Saving {len(all_entities)} entity metadata files...")
     entities_dir = os.path.join(kanka_raw_jsons_dir, 'entities')
     save_all_entity_metadata(entities_dir, all_entities)

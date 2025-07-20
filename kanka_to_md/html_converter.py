@@ -17,7 +17,7 @@ import markdown
 from bs4 import BeautifulSoup
 import re
 import logging
-from markdown_utils import create_anchor_label
+from .markdown_utils import create_anchor_label
 
 # Logging setup (if not already set by main)
 if not logging.getLogger().hasHandlers():
@@ -55,13 +55,53 @@ def preprocess_links(md):
     return pattern.sub(r'<a href="\2">\1</a>', md)
 
 
+def detect_hierarchy_level(text):
+    """Detect hierarchy level from the plus signs in anchor labels like ((+++anchor))."""
+    # Look for patterns like ((+++anchor)) and count the plus signs
+    match = re.search(r'\(\(\++([^)]+)\)\)', text)
+    if match:
+        # Count the plus signs in the matched group
+        full_match = match.group(0)  # e.g., "((+++teszt-journal-2))"
+        # Remove the (( and )) to get just the plus signs and anchor
+        inner_content = full_match[2:-2]  # e.g., "+++teszt-journal-2"
+        # Count consecutive plus signs at the beginning
+        plus_count = 0
+        for char in inner_content:
+            if char == '+':
+                plus_count += 1
+            else:
+                break
+        return min(plus_count, 5)  # Cap at level 5
+    return 1
+
 def convert_markdown_to_html(markdown_content):
-    """Convert Markdown to HTML using the markdown package, then post-process links for custom classes and add ids to headings. Also handle h7/h8 as custom divs."""
+    """Convert Markdown to HTML using the markdown package, then post-process links for custom classes and add ids to headings. Also handle h7/h8 as custom divs and hierarchy levels."""
+    
+    # Parse hierarchy levels from original markdown BEFORE cleaning
+    hierarchy_levels = {}
+    lines = markdown_content.split('\n')
+    for line in lines:
+        if line.strip().startswith('#'):
+            # Look for patterns like ## Teszt Journal ((++teszt-journal))
+            match = re.search(r'^(#+)\s*(.*?)\s*\(\((\++)([^)]+)\)\)', line)
+            if match:
+                header_level = len(match.group(1))  # Count # symbols
+                title = match.group(2).strip()
+                pluses = match.group(3)  # The plus signs
+                anchor = match.group(4)  # The anchor without plus signs
+                # Count plus signs
+                hierarchy_level = len(pluses)
+                hierarchy_levels[title] = hierarchy_level
+    
+    # Now clean the markdown content
     markdown_content = clean_markdown_content(markdown_content)
     markdown_content = preprocess_links(markdown_content)
     markdown_content = re.sub(r'^(########)\s*(.*)', r'[[[H8]]] \2', markdown_content, flags=re.MULTILINE)
     markdown_content = re.sub(r'^(#######)\s*(.*)', r'[[[H7]]] \2', markdown_content, flags=re.MULTILINE)
+    
     html_content = markdown.markdown(markdown_content, extensions=[])
+    
+    # Now clean up the anchors
     html_content = re.sub(r'(<h[1-6][^>]*>)([^<]*?)(\(\(\+{1,}[^)]+\)\)[^<]*?)(</h[1-6]>)', r'\1\2\4', html_content)
     html_content = re.sub(r'(<h[1-6][^>]*>)([^<]*?)(\s*\+\+[^<]*?)(</h[1-6]>)', r'\1\2\4', html_content)
     html_content = re.sub(r'(<h[1-8][^>]*>)([^<]*?)(</h[1-8]>)', lambda m: m.group(1) + m.group(2).replace('#', '') + m.group(3), html_content)
@@ -91,6 +131,13 @@ def convert_markdown_to_html(markdown_content):
         text = tag.get_text().strip()
         anchor = create_anchor_label(text)
         tag['id'] = anchor
+        
+        # Apply hierarchy classes from stored levels
+        if text in hierarchy_levels:
+            level = hierarchy_levels[text]
+            if level > 1:
+                tag['class'] = tag.get('class', []) + [f'hierarchy-level-{level}']
+                tag['class'] = tag.get('class', []) + ['child-entity']
 
     for a_tag in soup.find_all('a'):
         href = a_tag.get('href', '')
@@ -98,20 +145,16 @@ def convert_markdown_to_html(markdown_content):
             anchor = href[1:]
             clean_anchor = create_anchor_label(anchor)
             a_tag['href'] = f'#{clean_anchor}'
-            a_tag['class'] = a_tag.get('class', []) + ['pointer']
         elif href.startswith('http'):
             a_tag['target'] = '_blank'
-        else:
-            if href:
-                anchor = create_anchor_label(href.strip())
-                a_tag['href'] = f'#{anchor}'
-                a_tag['class'] = a_tag.get('class', []) + ['pointer']
+            a_tag['rel'] = 'noopener noreferrer'
+        a_tag['class'] = a_tag.get('class', []) + ['pointer']
 
     return str(soup)
 
 
 def create_html_document(html_content, title="Worldbook"):
-    """Create a complete HTML document with the original Kanka styling, given HTML content as a single string."""
+    """Create a complete HTML document with Kanka styling."""
     css_styles = """
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     body { background: #000; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
@@ -135,9 +178,19 @@ def create_html_document(html_content, title="Worldbook"):
     .pointer { color: rgb(172, 13, 74); text-decoration: none; font-weight: 500; transition: color 0.2s ease; }
     .pointer:hover { color: rgb(211, 126, 14); text-decoration: underline; }
     .page-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(45deg, rgba(93,0,0,0.05) 0%, rgba(167,102,82,0.05) 100%); pointer-events: none; border-radius: 8px; }
+    
+    /* Hierarchy indentation styles */
+    .hierarchy-level-1 { margin-left: 0; }
+    .hierarchy-level-2 { margin-left: 2rem; border-left: 4px solid #FF6B6B; padding-left: 1.5rem; background: linear-gradient(90deg, rgba(255,107,107,0.1) 0%, transparent 100%); }
+    .hierarchy-level-3 { margin-left: 4rem; border-left: 4px solid #4ECDC4; padding-left: 1.5rem; background: linear-gradient(90deg, rgba(78,205,196,0.1) 0%, transparent 100%); }
+    .hierarchy-level-4 { margin-left: 6rem; border-left: 4px solid #45B7D1; padding-left: 1.5rem; background: linear-gradient(90deg, rgba(69,183,209,0.1) 0%, transparent 100%); }
+    .hierarchy-level-5 { margin-left: 8rem; border-left: 4px solid #96CEB4; padding-left: 1.5rem; background: linear-gradient(90deg, rgba(150,206,180,0.1) 0%, transparent 100%); }
+    .child-entity { font-style: italic; }
+    
     @media (max-width: 768px) { .page { padding: 1rem; } #result { margin: 0.5rem; } }
     """
-    html = f'''<!DOCTYPE html>
+    
+    html_template = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -157,8 +210,9 @@ def create_html_document(html_content, title="Worldbook"):
 </div>
 </div>
 </body>
-</html>'''
-    return html
+</html>"""
+    
+    return html_template
 
 
 def convert_markdown_file_to_html(markdown_file_path, output_file_path):

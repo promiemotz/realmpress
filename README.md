@@ -8,9 +8,10 @@ RealmPress connects to your Kanka campaign and:
 
 1. **Downloads your campaign data** - Characters, locations, events, items, and more
 2. **Creates a beautiful markdown document** - Organized and formatted like a professional worldbook
-3. **Converts it to HTML** - With beautiful styling that matches Kanka's look
-4. **Creates a PDF** - With working links that players can click on
-5. **Optionally uploads to Google Drive** - So you can share it with your players
+3. **Supports multiple languages** - English and Hungarian chapter titles and UI elements
+4. **Converts it to HTML** - With beautiful styling that matches Kanka's look
+5. **Creates a PDF** - With working links that players can click on
+6. **Optionally uploads to Google Drive** - So you can share it with your players
 
 ## What You Get
 
@@ -92,6 +93,7 @@ If you have a large campaign with many entities, the API method can be slow due 
        "api_token": "not-needed-for-manual-export",
        "campaign_id": "your-campaign-id-here",
        "include_private": false,
+       "last_run": "2000-01-01T00:00:00+00:00",
        "manual_export": true
    }
    ```
@@ -119,9 +121,10 @@ Choose one of these methods:
 python kanka_to_md/main.py
 ```
 
-**Option B: GUI (if available)**
+**Option B: GUI (Coming Soon)**
 ```bash
-python kanka_to_md/gui.py
+# GUI is not yet implemented - use Option A instead
+python kanka_to_md/main.py
 ```
 
 **Option C: Windows Batch File**
@@ -158,6 +161,46 @@ This is the final product - a professional document that:
 By default, RealmPress only includes public content. To include private content:
 1. Edit `kanka_to_md/config.json`
 2. Change `"include_private": false` to `"include_private": true`
+
+### Language Localization
+RealmPress supports multiple languages for chapter titles and UI elements. Currently supported languages:
+- **English (en)** - Default language
+- **Hungarian (hu)** - Magyar nyelv
+
+#### Setting the Language
+
+**Option 1: Config File (Recommended)**
+Edit `kanka_to_md/config.json` and add or modify the language setting:
+```json
+{
+    "include_private": false,
+    "language": "en",
+    "api_token": "your-kanka-api-token-here",
+    "campaign_id": "your-campaign-id-here"
+}
+```
+
+**Option 2: Command Line**
+Override the config file language using the CLI:
+```bash
+# Use English
+python kanka_to_md/main.py --language en
+
+# Use Hungarian
+python kanka_to_md/main.py --language hu
+```
+
+#### What Gets Translated
+- Chapter titles (Locations, Characters, Events, etc.)
+- UI elements (Generation Settings, Details, etc.)
+- Section headers and navigation
+- Configuration labels
+
+#### Adding New Languages
+To add support for additional languages:
+1. Edit `kanka_to_md/translations.json`
+2. Add a new language section with translations
+3. Update `SUPPORTED_LANGUAGES` in `kanka_to_md/localization.py`
 
 ### Disabling Google Drive Upload
 If you don't want to upload to Google Drive:
@@ -234,12 +277,16 @@ The `last_run.json` file tells RealmPress when it last downloaded data. This hel
 
 ## Advanced Features
 
-### Using the GUI (not yet available)
-If you prefer a graphical interface:
+### Using the GUI
+**Note: GUI is not yet implemented**
+
+A graphical interface is planned but not yet available. For now, please use the command line interface:
+
 ```bash
-python kanka_to_md/gui.py
+python kanka_to_md/main.py
 ```
-This opens a window where you can:
+
+Future GUI features will include:
 - Select which features to enable/disable
 - Set your API credentials
 - Customize the chapter order
@@ -262,8 +309,10 @@ python -m unittest discover test
 ```
 kanka_to_md/
 ├── main.py                    # Main script (what you run)
-├── gui.py                     # Graphical interface
+├── gui.py                     # Graphical interface (not yet implemented)
 ├── config.json               # Your Kanka settings
+├── translations.json         # Language translations
+├── localization.py           # Localization support
 ├── kanka_jsons/              # Downloaded campaign data
 ├── html_converter.py         # Converts markdown to HTML
 ├── pdf_converter_wkhtmltopdf.py  # Creates PDFs
@@ -304,6 +353,3 @@ This project is licensed under the **MIT License**. This means:
 The MIT License is one of the most permissive open source licenses, giving you maximum freedom to use, modify, and distribute the software.
 
 See the LICENSE file for full details. 
-
-### AI use in the project
-This project was quickly prototyped with Cursor. 

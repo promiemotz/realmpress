@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 from collections import defaultdict
-from markdown_utils import create_anchor_label, convert_mentions_in_html, replace_mentions, md_escape
+from .markdown_utils import create_anchor_label, convert_mentions_in_html, replace_mentions, md_escape
+from .localization import get_chapter_title, get_chapter_slug, get_ui_text, validate_language
 import re
 
 def paginate_and_columnize(lines, lines_per_page=55):
@@ -27,10 +28,231 @@ def paginate_and_columnize(lines, lines_per_page=55):
         result.append('\n'.join(col1) + '\n/\n' + '\n'.join(col2))
     return result
 
-def generate_worldbook(locations: Dict[int, Dict[str, Any]], characters: List[Dict[str, Any]], charlocations: Dict[int, Dict[str, Any]], organizations: List[Dict[str, Any]], events: List[Dict[str, Any]], entity_map: Dict[int, Dict[str, str]], character_id_to_entity_id: Dict[int, int], notes: List[Dict[str, Any]], items: List[Dict[str, Any]], families: List[Dict[str, Any]], races: List[Dict[str, Any]], include_private=False) -> str:
-    import re
-    from collections import defaultdict
-    from markdown_utils import create_anchor_label, convert_mentions_in_html, replace_mentions, md_escape
+def generate_worldbook(entities: dict, include_private=False, language: str = 'en') -> str:
+    # Validate and set language
+    language = validate_language(language)
+    
+    # Unpack known types for legacy rendering order
+    locations = entities.get('locations', {})
+    characters = entities.get('characters', [])
+    charlocations = entities.get('charlocations', {})
+    organizations = entities.get('organizations', [])
+    events = entities.get('events', [])
+    entity_map = entities.get('entity_map', {})
+    character_id_to_entity_id = entities.get('character_id_to_entity_id', {})
+    notes = entities.get('notes', [])
+    items = entities.get('items', [])
+    families = entities.get('families', [])
+    races = entities.get('races', [])
+    journals = entities.get('journals', [])
+    calendars = entities.get('calendars', [])
+    tags = entities.get('tags', [])
+    quests = entities.get('quests', [])
+    maps = entities.get('maps', [])
+    timelines = entities.get('timelines', [])
+
+    # Generic tree node class for all hierarchical entities
+    class TreeNode:
+        def __init__(self, entity_data):
+            self.entity = entity_data
+            self.children = []
+            self.depth = 0
+            # Handle different parent field names for different entity types
+            self.parent_id = None
+            entity_type = entity_data.get('entity', {}).get('type', '')
+            if entity_type is None:
+                entity_type = ''
+            entity_type = entity_type.lower()
+            
+            if entity_type == 'journal':
+                # Journals use journal_id for parent relationship
+                self.parent_id = entity_data.get('journal_id')
+            elif entity_type == 'location':
+                # Locations use location_id for parent relationship
+                self.parent_id = entity_data.get('location_id')
+            elif entity_type == 'race':
+                # Races use race_id for parent relationship
+                self.parent_id = entity_data.get('race_id')
+            elif entity_type == 'quest':
+                # Quests use quest_id for parent relationship
+                self.parent_id = entity_data.get('quest_id')
+            elif entity_type == 'note':
+                # Notes use note_id for parent relationship
+                self.parent_id = entity_data.get('note_id')
+            elif entity_type == 'family':
+                # Families use family_id for parent relationship
+                self.parent_id = entity_data.get('family_id')
+            elif entity_type == 'organisation':
+                # Organizations use organisation_id for parent relationship
+                self.parent_id = entity_data.get('organisation_id')
+            elif entity_type == 'item':
+                # Items use item_id for parent relationship
+                self.parent_id = entity_data.get('item_id')
+            elif entity_type == 'calendar':
+                # Calendars use calendar_id for parent relationship
+                self.parent_id = entity_data.get('calendar_id')
+            elif entity_type == 'timeline':
+                # Timelines use timeline_id for parent relationship
+                self.parent_id = entity_data.get('timeline_id')
+            elif entity_type == 'map':
+                # Maps use map_id for parent relationship
+                self.parent_id = entity_data.get('map_id')
+            elif entity_type == 'tag':
+                # Tags use tag_id for parent relationship
+                self.parent_id = entity_data.get('tag_id')
+            else:
+                # Default to parent_id for other types
+                self.parent_id = entity_data.get('parent_id') or entity_data.get('entity', {}).get('parent_id')
+            
+            self.entity_id = entity_data.get('id') or entity_data.get('entity', {}).get('id')
+        
+        def add_child(self, child_node):
+            self.children.append(child_node)
+            child_node.depth = self.depth + 1
+        
+        def get_name(self):
+            return self.entity.get('name') or self.entity.get('entity', {}).get('name', 'Unnamed')
+        
+        def get_id(self):
+            return self.entity_id
+    
+    # Build hierarchical tree for any entity type
+    def build_entity_tree(entities_list):
+        if not entities_list:
+            return []
+        
+        # Create nodes
+        nodes = {}
+        root_nodes = []
+        
+        for entity in entities_list:
+            node = TreeNode(entity)
+            nodes[node.get_id()] = node
+        
+        # Build parent-child relationships
+        for node in nodes.values():
+            if node.parent_id and node.parent_id in nodes:
+                parent = nodes[node.parent_id]
+                parent.add_child(node)
+            else:
+                root_nodes.append(node)
+        
+        return root_nodes
+    
+    # Write hierarchical entity with proper indentation
+    def write_hierarchical_entity(entity, depth=0, max_depth=5):
+        if depth > max_depth:
+            return []
+        
+        lines = []
+        ent = entity.get('entity', {})
+        name = entity.get('name') or ent.get('name', 'Unnamed')
+        anchor = create_anchor_label(name)
+        pluses = '+' * (depth + 2)
+        
+        # Use proper markdown header without indentation spaces
+        # The indentation will be handled by CSS in the HTML output
+        lines.append(f"## {md_escape(name)} (({pluses}{anchor}))")
+        lines.append("")
+        
+        entry_html = entity.get('entry') or ent.get('entry') or ''
+        entry_cleaned = convert_mentions_in_html(entry_html)
+        entry_md = replace_mentions(entry_cleaned, entity_map)
+        
+        details = []
+        if is_private_obj(entity):
+            details.append("- **Privát:** Igen")
+        
+        # Add location as a markdown link if available
+        loc_name = None
+        if entity.get('location_id') and entity.get('location_id') in location_by_id:
+            loc = location_by_id[entity['location_id']]
+            loc_name = loc.get('name') or loc.get('entity', {}).get('name')
+        if loc_name:
+            loc_anchor = create_anchor_label(loc_name)
+            details.append(f"- **Tartózkodási hely:** [{md_escape(loc_name)}](#{loc_anchor})")
+        
+        if 'type' in ent and ent['type']:
+            details.append(f"- **Típus:** {md_escape(ent['type'])}")
+        
+        if ent.get('tags'):
+            tag_names = []
+            for tag in ent.get('tags', []):
+                if isinstance(tag, dict) and 'name' in tag:
+                    tag_names.append(tag.get('name', ''))
+                elif isinstance(tag, str):
+                    tag_names.append(tag)
+                # Skip if tag is an integer or other non-string/non-dict type
+            if tag_names:
+                details.append(f"- **Címkék:** {', '.join(tag_names)}")
+        
+        if 'age' in entity and entity['age']:
+            details.append(f"- **Életkor:** {entity['age']}")
+        
+        if 'gender' in entity and entity['gender']:
+            details.append(f"- **Nem:** {entity['gender']}")
+        
+        details_md = ""
+        if details:
+            details_block = '\n'.join(details)
+            if not details_block.startswith('\n- '):
+                details_block = '\n' + details_block
+            details_md = "\n\n---\n**Részletek:**\n" + details_block + "\n\n"
+        
+        full_entry = details_md + entry_md
+        lines.append(f"{full_entry}")
+        
+        # Add family members if this is a family
+        pivot_members = entity.get('pivotMembers', [])
+        if pivot_members:
+            lines.append("**Családtagok:**\n")
+            for member in pivot_members:
+                char_id = member.get('character_id')
+                entity_id = character_id_to_entity_id.get(char_id)
+                char_info = entity_map.get(entity_id)
+                if char_info:
+                    char_name = char_info['name']
+                    char_anchor = create_anchor_label(char_name)
+                    lines.append(f"- [{md_escape(char_name)}](#{char_anchor})")
+                else:
+                    lines.append(f"- **Unknown member {char_id}**")
+            lines.append("")
+        
+        lines.append("---")
+        return lines
+    
+    # Write hierarchical section with tree traversal
+    def write_hierarchical_section(title, entities_list, entity_map, section_slug, max_depth=5):
+        if not entities_list:
+            return []
+        
+        lines = []
+        lines.append(f"# {title} ((+{section_slug}))")
+        lines.append("")
+        
+        # Build tree
+        root_nodes = build_entity_tree(entities_list)
+        
+        # Traverse tree and write entities
+        def traverse_and_write(node, depth=0):
+            if depth > max_depth:
+                return
+            
+            # Write this node
+            entity_lines = write_hierarchical_entity(node.entity, depth, max_depth)
+            lines.extend(entity_lines)
+            
+            # Sort children by name and recursively write them
+            sorted_children = sorted(node.children, key=lambda n: n.get_name())
+            for child in sorted_children:
+                traverse_and_write(child, depth + 1)
+        
+        # Sort root nodes by name and traverse
+        sorted_roots = sorted(root_nodes, key=lambda n: n.get_name())
+        for root in sorted_roots:
+            traverse_and_write(root)
+        
+        return lines
 
     # Splits a list of markdown lines into "visual blocks" for pagination/columnization.
     # It joins the lines into a single string, then splits at points that look like the start of a new
@@ -205,6 +427,9 @@ def generate_worldbook(locations: Dict[int, Dict[str, Any]], characters: List[Di
         families = [f for f in families if not is_private_obj(f)]
         notes = [n for n in notes if not is_private_obj(n)]
         races = [r for r in races if not is_private_obj(r)]
+
+    if journals is None:
+        journals = []
 
     # print(f"[DEBUG] Locations after privacy filter: {len(locations)}")
     # print(f"[DEBUG] Characters after privacy filter: {len(characters)}")
@@ -382,8 +607,8 @@ def generate_worldbook(locations: Dict[int, Dict[str, Any]], characters: List[Di
         for child_race in sorted(race_children.get(race['id'], []), key=lambda x: x.get('name') or x.get('entity', {}).get('name', '')):
             lines.append(write_race(child_race, depth + 1))
         return ''.join(lines)
-    def generate_organizations(organizations, entity_map, character_id_to_entity_id):
-        markdown = "\n# Szervezetek  ((+szervezetek))\n\n"
+    def generate_organizations(organizations, entity_map, character_id_to_entity_id, language='en'):
+        markdown = f"\n# {get_chapter_title('organizations', language)}  ((+{get_chapter_slug('organizations', language)}))\n\n"
         for org in sorted(organizations, key=lambda o: o.get('name') or o.get('entity', {}).get('name', '')):
             ent = org.get('entity', {})
             org_name = org.get('name') or ent.get('name', 'Unnamed Organization')
@@ -393,19 +618,19 @@ def generate_worldbook(locations: Dict[int, Dict[str, Any]], characters: List[Di
             entry = ent.get('entry')
             details = []
             if is_private_obj(org):
-                details.append("- **Privát:** Igen")
+                details.append(f"- **{get_ui_text('private', language)}:** {get_ui_text('yes', language)}")
             if details:
                 # Ensure a blank line before the list
                 details_block = '\n'.join(details)
                 if not details_block.startswith('\n- '):
                     details_block = '\n' + details_block
-                markdown += "\n---\n**Részletek:**\n" + details_block + "\n\n"
+                markdown += f"\n---\n**{get_ui_text('details', language)}:**\n" + details_block + "\n\n"
             if entry:
                 entry_md = replace_mentions(entry, entity_map)
                 markdown += f"{entry_md}\n\n"
             members = org.get('members', [])
             if members:
-                markdown += "**Members:**\n\n"
+                markdown += f"**{get_ui_text('members', language)}:**\n\n"
                 for member in members:
                     char_id = member.get('character_id')
                     entity_id = character_id_to_entity_id.get(char_id)
@@ -419,7 +644,7 @@ def generate_worldbook(locations: Dict[int, Dict[str, Any]], characters: List[Di
                         else:
                             markdown += f"- [{md_escape(char_name)}](#{char_anchor})\n"
                     else:
-                        markdown += f"- **Unknown member {char_id}**\n"
+                        markdown += f"- **{get_ui_text('unknown_member', language)} {char_id}**\n"
                 markdown += "\n"
         return markdown
     def write_section(title, entries, entity_map, section_slug):
@@ -479,21 +704,22 @@ def generate_worldbook(locations: Dict[int, Dict[str, Any]], characters: List[Di
             markdown += "\n---\n"
         return markdown
 
+    # Render sections in order with hierarchy support
     output_lines = []
-    output_lines.append('# Könyv ((+konyv))')
-    output_lines.append('')
-    loc_section = []
-    # Debug: Check what root locations we have
-    # print(f"[DEBUG] Root locations for rendering: {[loc.get('name') for loc in root_locations]}")
     
-    # Render all locations, starting from root locations
-    for root_loc in sorted(root_locations, key=lambda x: x.get('name') or x['entity'].get('name', '')):
+    # Locations (keep existing hierarchical logic)
+    loc_section = []
+    loc_section.append(f"# {get_chapter_title('locations', language)} ((+{get_chapter_slug('locations', language)}))")
+    loc_section.append('')
+    for root_loc in sorted(locations.values(), key=lambda x: x.get('name') or x['entity'].get('name', '')):
         loc_section.extend(write_location(root_loc).split('\n'))
     if loc_section:
         add_section(loc_section, output_lines)
+    
+    # Characters without location (keep existing logic)
     chars_section = []
     if chars_without_location:
-        chars_section.append('# Helyszín nélküli karakterek  ((+chars_withour_loc))')
+        chars_section.append(f"# {get_chapter_title('characters', language)}  ((+{get_chapter_slug('characters', language)}))")
         chars_section.append('')
         for c in sorted(chars_without_location, key=lambda x: x.get('name') or x.get('entity', {} ).get('name', '')):
             c_ent = c['entity']
@@ -533,25 +759,21 @@ def generate_worldbook(locations: Dict[int, Dict[str, Any]], characters: List[Di
             family_name = None
             family_id = None
             if 'character_families' in c and c['character_families']:
-                fam = c['character_families'][0].get('family')
-                if fam:
-                    family_name = fam.get('name')
-                    family_id = fam.get('id')
+                family = c['character_families'][0].get('family')
+                if family:
+                    family_name = family.get('name')
+                    family_id = family.get('id')
             elif 'characterFamilies' in c and c['characterFamilies']:
-                fam_id = c['characterFamilies'][0].get('family_id')
-                fam = next((f for f in families if f['id'] == fam_id), None)
-                if fam:
-                    family_name = fam.get('name')
-                    family_id = fam.get('id')
+                family = c['characterFamilies'][0].get('family')
+                if family:
+                    family_name = family.get('name')
+                    family_id = family.get('id')
             if family_name:
                 if family_id:
                     family_anchor = create_anchor_label(family_name)
                     details.append(f"- **Család:** [{md_escape(family_name)}](#{family_anchor})")
                 else:
                     details.append(f"- **Család:** {md_escape(family_name)}")
-            char_type = c.get('type') or c_ent.get('type')
-            if char_type:
-                details.append(f"- **Típus:** {md_escape(char_type)}")
             if c.get('age'):
                 details.append(f"- **Életkor:** {md_escape(str(c['age']))}")
             if c.get('sex'):
@@ -572,48 +794,88 @@ def generate_worldbook(locations: Dict[int, Dict[str, Any]], characters: List[Di
             chars_section.append(f"{details_md}{entry}\n\n---\n")
     if chars_section:
         add_section(chars_section, output_lines)
-    events_section = []
+    
+    # Events (use hierarchical rendering)
     if events:
-        events_section.append('# Események ((+Esemenyek))')
-        events_section.append('')
-        for event in sorted(events, key=lambda e: e.get('name') or e.get('entity', {}).get('name', '')):
-            ent = event.get('entity', {})
-            if ent.get('is_private'):
-                continue
-            event_ent = event['entity']
-            event_id = event_ent['id']
-            event_name = event.get('name') or event_ent.get('name', 'Unnamed Event')
-            entry = replace_mentions(event.get('entry') or "", entity_map)
-            events_section.append(f'\n<a name="entity-{event_id}"></a>')
-            events_section.append(f"## {md_escape(event_name)}\n")
-            events_section.append(f"{entry}\n\n---\n")
-    if events_section:
-        add_section(events_section, output_lines)
-    orgs_section = generate_organizations(organizations, entity_map, character_id_to_entity_id).split('\n')
+        events_section = write_hierarchical_section(get_chapter_title('events', language), events, entity_map, get_chapter_slug('events', language))
+        if events_section:
+            add_section(events_section, output_lines)
+    
+    # Organizations (keep existing logic for now)
+    orgs_section = generate_organizations(organizations, entity_map, character_id_to_entity_id, language).split('\n')
     if orgs_section:
         add_section(orgs_section, output_lines)
-    notes_section = write_section("Jegyzetek", notes, entity_map, "jegyzetek").split('\n')
-    if notes_section:
-        add_section(notes_section, output_lines)
-    items_section = write_section("Tárgyak", items, entity_map, "targyak").split('\n')
-    if items_section:
-        add_section(items_section, output_lines)
-    families_section = write_section("Családok", families, entity_map, "csaladok").split('\n')
-    if families_section:
-        add_section(families_section, output_lines)
+    
+    # Notes (use hierarchical rendering)
+    if notes:
+        notes_section = write_hierarchical_section(get_chapter_title('notes', language), notes, entity_map, get_chapter_slug('notes', language))
+        if notes_section:
+            add_section(notes_section, output_lines)
+    
+    # Items (use hierarchical rendering)
+    if items:
+        items_section = write_hierarchical_section(get_chapter_title('items', language), items, entity_map, get_chapter_slug('items', language))
+        if items_section:
+            add_section(items_section, output_lines)
+    
+    # Families (use hierarchical rendering)
+    if families:
+        families_section = write_hierarchical_section(get_chapter_title('families', language), families, entity_map, get_chapter_slug('families', language))
+        if families_section:
+            add_section(families_section, output_lines)
+    
+    # Races (keep existing hierarchical logic)
     races_section = []
-    races_section.append('# Fajok ((+fajok))')
+    races_section.append(f"# {get_chapter_title('races', language)} ((+{get_chapter_slug('races', language)}))")
     races_section.append('')
     for root_race in sorted(root_races, key=lambda x: x.get('name') or x.get('entity', {}).get('name', '')):
         races_section.extend(write_race(root_race).split('\n'))
     if races_section:
         add_section(races_section, output_lines)
+    
+    # Journals (use hierarchical rendering)
+    if journals:
+        journals_section = write_hierarchical_section(get_chapter_title('journals', language), journals, entity_map, get_chapter_slug('journals', language))
+        if journals_section:
+            add_section(journals_section, output_lines)
+    
+    # Quests (use hierarchical rendering)
+    if quests:
+        quests_section = write_hierarchical_section(get_chapter_title('quests', language), quests, entity_map, get_chapter_slug('quests', language))
+        if quests_section:
+            add_section(quests_section, output_lines)
+    
+    # Tags (use hierarchical rendering)
+    if tags:
+        tags_section = write_hierarchical_section(get_chapter_title('tags', language), tags, entity_map, get_chapter_slug('tags', language))
+        if tags_section:
+            add_section(tags_section, output_lines)
+    
+    # Maps (use hierarchical rendering)
+    if maps:
+        maps_section = write_hierarchical_section(get_chapter_title('maps', language), maps, entity_map, get_chapter_slug('maps', language))
+        if maps_section:
+            add_section(maps_section, output_lines)
+    
+    # Calendars (use hierarchical rendering)
+    if calendars:
+        calendars_section = write_hierarchical_section(get_chapter_title('calendars', language), calendars, entity_map, get_chapter_slug('calendars', language))
+        if calendars_section:
+            add_section(calendars_section, output_lines)
+    
+    # Timelines (use hierarchical rendering)
+    if timelines:
+        timelines_section = write_hierarchical_section(get_chapter_title('timelines', language), timelines, entity_map, get_chapter_slug('timelines', language))
+        if timelines_section:
+            add_section(timelines_section, output_lines)
+    
+    # Remove the generic section rendering that causes duplication
+    # The sections above handle all known entity types
+    
     output_lines.append('---')
-    output_lines.append("## Generálási beállítások\n")
-    output_lines.append(f"- **Privát entitások megjelenítése:** {'Igen' if include_private else 'Nem'}\n")
+    output_lines.append(f"## {get_ui_text('generation_settings', language)}\n")
+    output_lines.append(f"- **{get_ui_text('private_entities_display', language)}:** {get_ui_text('yes' if include_private else 'no', language)}\n")
     if not output_lines:
-        # print('[DEBUG] generate_worldbook: output_lines is empty, returning empty string')
         return ''
     result = '\n'.join(output_lines)
-    # print(f'[DEBUG] generate_worldbook: returning {len(result)} characters')
     return result 

@@ -17,6 +17,7 @@ import os
 import sys
 import subprocess
 from pathlib import Path
+from .markdown_utils import create_anchor_label
 
 def check_wkhtmltopdf():
     """Check if wkhtmltopdf is installed and available."""
