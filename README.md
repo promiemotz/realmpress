@@ -118,13 +118,15 @@ Choose one of these methods:
 
 **Option A: Simple Command Line**
 ```bash
-python kanka_to_md/main.py
+python -m kanka_to_md.main
 ```
+
+> **Note:** RealmPress currently requires running as a package/module. Right now do not run with `python kanka_to_md/main.py`.
 
 **Option B: GUI (Coming Soon)**
 ```bash
 # GUI is not yet implemented - use Option A instead
-python kanka_to_md/main.py
+python -m kanka_to_md.main
 ```
 
 **Option C: Windows Batch File**
@@ -184,10 +186,10 @@ Edit `kanka_to_md/config.json` and add or modify the language setting:
 Override the config file language using the CLI:
 ```bash
 # Use English
-python kanka_to_md/main.py --language en
+python -m kanka_to_md.main --language en
 
 # Use Hungarian
-python kanka_to_md/main.py --language hu
+python -m kanka_to_md.main --language hu
 ```
 
 #### What Gets Translated
@@ -283,7 +285,7 @@ The `last_run.json` file tells RealmPress when it last downloaded data. This hel
 A graphical interface is planned but not yet available. For now, please use the command line interface:
 
 ```bash
-python kanka_to_md/main.py
+python -m kanka_to_md.main
 ```
 
 Future GUI features will include:
@@ -295,7 +297,7 @@ Future GUI features will include:
 ### Custom Output Names
 You can specify custom output files:
 ```bash
-python kanka_to_md/main.py --output my_campaign.md
+python -m kanka_to_md.main --output my_campaign.md
 ```
 
 ### Running Tests
