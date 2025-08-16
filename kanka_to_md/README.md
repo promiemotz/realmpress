@@ -1,16 +1,19 @@
-# RealmPress - Kanka to Markdown Converter
+# RealmPress Package Documentation
 
 This folder contains the main RealmPress application that converts your Kanka campaign data into beautiful documents.
 
-## What's in This Folder
+> **For users**: See the main [README.md](../README.md) for quick start instructions and [SETUP.md](../SETUP.md) for detailed setup.
 
-### Main Scripts (What You Run)
-- **`main.py`** - The main script that does everything (downloads data, creates documents, etc.)
-- **`gui.py`** - A graphical interface for easier use (if you prefer clicking buttons)
+## 📁 Package Structure
+
+### Main Scripts
+- **`main.py`** - The main script that orchestrates everything
+- **`gui.py`** - Graphical interface (planned for future release)
 
 ### Configuration
 - **`config.json`** - Your Kanka API settings (API token, campaign ID, etc.)
 - **`requirements.txt`** - List of Python packages needed
+- **`translations.json`** - Language translations for UI elements
 
 ### Core Functions
 - **`kanka_function.py`** - Connects to Kanka and downloads your campaign data
@@ -23,6 +26,7 @@ This folder contains the main RealmPress application that converts your Kanka ca
 - **`entity_processing.py`** - Organizes and processes your campaign data
 - **`markdown_utils.py`** - Handles markdown formatting and links
 - **`io_utils.py`** - Reads and writes files
+- **`localization.py`** - Handles multi-language support
 
 ### Data Storage
 - **`kanka_jsons/`** - Folder where your downloaded Kanka data is stored
@@ -32,74 +36,49 @@ This folder contains the main RealmPress application that converts your Kanka ca
 - **`events/`** - Event data
 - And more folders for other content types...
 
-## Quick Start
+## 🚀 Quick Usage
 
-1. **Set up your configuration:**
-   ```bash
-   # Edit config.json with your Kanka API details
-   ```
+```bash
+# Run the main application
+python -m kanka_to_md.main
 
-2. **Run the main script:**
-   ```bash
-   python main.py
-   ```
+# Run with custom language
+python -m kanka_to_md.main --language hu
 
-3. **Or use the GUI:**
-   ```bash
-   python gui.py
-   ```
-
-## Understanding the Process
-
-When you run `main.py`, it does these steps in order:
-
-1. **Downloads Data** - Gets all your campaign content from Kanka
-2. **Processes Data** - Organizes everything by type (characters, locations, etc.)
-3. **Creates Markdown** - Builds a beautiful, organized document
-4. **Converts to HTML** - Makes it look professional with styling
-5. **Creates PDF** - Generates a PDF with working links
-6. **Uploads to Drive** - (Optional) Shares it on Google Drive
-
-## Customizing the Output
-
-### Changing What Gets Included
-Edit `config.json`:
-```json
-{
-    "api_token": "your-token",
-    "campaign_id": "your-campaign",
-    "include_private": false  // Set to true to include private content
-}
+# Run with custom output name
+python -m kanka_to_md.main --output my_campaign.md
 ```
 
-### Disabling Features
-Edit `main.py` and comment out lines you don't want:
-```python
-# To skip Google Drive upload, comment out this line:
-# upload_to_drive(output_pdf, logger)
+## 🔧 Development
+
+### Running Individual Components
+You can run individual parts of the process for testing:
+
+```bash
+# Just download data from Kanka
+python -c "from kanka_to_md.kanka_function import fetch_and_save_updated_entities; fetch_and_save_updated_entities()"
+
+# Just convert existing markdown to HTML
+python kanka_to_md/html_converter.py
+
+# Just convert HTML to PDF
+python kanka_to_md/pdf_converter_wkhtmltopdf.py worldbook_styled.html
 ```
 
-## Troubleshooting
+### Running Tests
+```bash
+python -m unittest discover test
+```
 
-### Common Issues
-- **"API token not found"** - Check your `config.json` file
-- **"PDF conversion failed"** - Install wkhtmltopdf: `winget install wkhtmltopdf`
-- **"No data found"** - Make sure your campaign ID is correct
+### Adding New Languages
+1. Edit `translations.json` and add a new language section
+2. Update `SUPPORTED_LANGUAGES` in `localization.py`
+3. Test with `python -m kanka_to_md.main --language your_language_code`
 
-### Log Files
-Check the `logs/` folder for detailed error messages and progress information.
-
-## File Descriptions
+## 📋 File Descriptions
 
 ### `main.py`
 The main script that orchestrates everything. It's heavily commented so you can easily understand what each part does and disable features you don't want.
-
-### `gui.py`
-A graphical interface built with Tkinter. Provides a user-friendly way to:
-- Set your API credentials
-- Choose which features to enable
-- Customize the output
-- Run the workflow with a button click
 
 ### `kanka_function.py`
 Handles all communication with the Kanka API. It:
@@ -136,39 +115,18 @@ Uploads files to Google Drive. It:
 - Updates existing files (keeps the same link)
 - Sets proper sharing permissions
 
-## Advanced Usage
+## 📚 Related Documentation
 
-### Running Individual Components
-You can run individual parts of the process:
+- **[Main README](../README.md)** - Quick start and overview
+- **[SETUP.md](../SETUP.md)** - Complete setup instructions
+- **[USAGE.md](../USAGE.md)** - Usage and customization guide
+- **[TROUBLESHOOTING.md](../TROUBLESHOOTING.md)** - Common issues and solutions
+- **[CHANGELOG.md](../CHANGELOG.md)** - Release notes and updates
 
-```bash
-# Just download data from Kanka
-python -c "from kanka_function import fetch_and_save_updated_entities; fetch_and_save_updated_entities()"
-
-# Just convert existing markdown to HTML
-python html_converter.py
-
-# Just convert HTML to PDF
-python pdf_converter_wkhtmltopdf.py worldbook_styled.html
-```
-
-### Custom Output Names
-```bash
-python main.py --output my_campaign.md
-```
-
-### Using the GUI
-The GUI provides a visual way to:
-- Set your API credentials
-- Choose which features to enable/disable
-- Customize chapter order
-- Set conditions for content inclusion
-- Run the workflow with progress feedback
-
-## Support
+## 🆘 Support
 
 If you need help:
-1. Check the main README.md file
+1. Check the main [README.md](../README.md) file
 2. Look at the log files in the `logs/` folder
 3. Make sure your configuration is correct
 4. Try running the script again

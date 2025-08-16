@@ -84,6 +84,8 @@ def convert_html_to_pdf(html_file_path, output_pdf_path=None, title="Worldbook")
             '--print-media-type',
             '--no-stop-slow-scripts',
             '--javascript-delay', '1000',
+            '--disable-smart-shrinking',
+            '--zoom', '1.0',
             '--title', title,
             html_file_path,
             output_pdf_path

@@ -17,6 +17,8 @@ import markdown
 from bs4 import BeautifulSoup
 import re
 import logging
+import os
+import base64
 from .markdown_utils import create_anchor_label
 
 # Logging setup (if not already set by main)
@@ -32,6 +34,51 @@ if not logging.getLogger().hasHandlers():
         ]
     )
 logger = logging.getLogger(__name__)
+
+
+def embed_images_as_base64(html_content):
+    """Convert image references to embedded base64 data."""
+    import os
+    
+    # Find all img tags with gallery references
+    soup = BeautifulSoup(html_content, 'html.parser')
+    img_tags = soup.find_all('img')
+    
+    for img in img_tags:
+        src = img.get('src', '')
+        if src.startswith('gallery/'):
+            # Construct the full path to the image file
+            gallery_dir = os.path.join(os.path.dirname(__file__), 'kanka_jsons', 'gallery')
+            image_path = os.path.join(gallery_dir, src.replace('gallery/', ''))
+            
+            if os.path.exists(image_path):
+                try:
+                    # Read the image file and convert to base64
+                    with open(image_path, 'rb') as img_file:
+                        img_data = img_file.read()
+                        img_base64 = base64.b64encode(img_data).decode('utf-8')
+                        
+                        # Determine the MIME type based on file extension
+                        ext = os.path.splitext(image_path)[1].lower()
+                        mime_type = {
+                            '.jpg': 'image/jpeg',
+                            '.jpeg': 'image/jpeg',
+                            '.png': 'image/png',
+                            '.gif': 'image/gif',
+                            '.webp': 'image/webp'
+                        }.get(ext, 'image/jpeg')
+                        
+                        # Update the src attribute with base64 data
+                        img['src'] = f'data:{mime_type};base64,{img_base64}'
+                        logger.info(f"Embedded image: {src}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to embed image {src}: {e}")
+                    # Keep the original src if embedding fails
+            else:
+                logger.warning(f"Image file not found: {image_path}")
+    
+    return str(soup)
 
 
 def clean_markdown_content(md):
@@ -51,7 +98,8 @@ def clean_markdown_content(md):
 
 def preprocess_links(md):
     """Convert [text](#anchor) and [text](http...) to <a href="...">text</a> everywhere, even inside <p> or <span>."""
-    pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+    # Don't convert image syntax, only regular links
+    pattern = re.compile(r'(?<!\!)\[([^\]]+)\]\(([^)]+)\)')
     return pattern.sub(r'<a href="\2">\1</a>', md)
 
 
@@ -150,7 +198,10 @@ def convert_markdown_to_html(markdown_content):
             a_tag['rel'] = 'noopener noreferrer'
         a_tag['class'] = a_tag.get('class', []) + ['pointer']
 
-    return str(soup)
+    # Embed images as base64 data
+    html_content = embed_images_as_base64(str(soup))
+
+    return html_content
 
 
 def create_html_document(html_content, title="Worldbook"):
@@ -186,6 +237,10 @@ def create_html_document(html_content, title="Worldbook"):
     .hierarchy-level-4 { margin-left: 6rem; border-left: 4px solid #45B7D1; padding-left: 1.5rem; background: linear-gradient(90deg, rgba(69,183,209,0.1) 0%, transparent 100%); }
     .hierarchy-level-5 { margin-left: 8rem; border-left: 4px solid #96CEB4; padding-left: 1.5rem; background: linear-gradient(90deg, rgba(150,206,180,0.1) 0%, transparent 100%); }
     .child-entity { font-style: italic; }
+    
+    /* Image styling */
+    .content img { max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); margin: 1rem 0; display: block; }
+    .content img:hover { transform: scale(1.02); transition: transform 0.2s ease; }
     
     @media (max-width: 768px) { .page { padding: 1rem; } #result { margin: 0.5rem; } }
     """

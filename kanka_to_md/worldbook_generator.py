@@ -3,6 +3,75 @@ from collections import defaultdict
 from .markdown_utils import create_anchor_label, convert_mentions_in_html, replace_mentions, md_escape
 from .localization import get_chapter_title, get_chapter_slug, get_ui_text, validate_language
 import re
+import os
+
+def get_entity_image_path(entity_data, gallery_dir):
+    """
+    Get the image path for an entity if it has an associated image.
+    Args:
+        entity_data: Entity data dictionary
+        gallery_dir: Directory containing downloaded images
+    Returns:
+        str: Relative path to image file, or None if no image
+    """
+    # Check if entity has an image UUID (try both root and entity field)
+    image_uuid = entity_data.get('image_uuid')
+    if not image_uuid:
+        # Try to get from entity field
+        entity = entity_data.get('entity', {})
+        image_uuid = entity.get('image_uuid')
+    
+    # For campaigns, also check the 'image' field
+    if not image_uuid and entity_data.get('id') and not entity_data.get('entity'):
+        # This might be a campaign entity
+        image_path = entity_data.get('image')
+        if image_path:
+            # Extract filename from path
+            filename = os.path.basename(image_path)
+            # Look for the image file in the gallery directory
+            for gallery_file in os.listdir(gallery_dir):
+                if gallery_file == filename:
+                    # Skip JSON metadata files, only return actual image files
+                    if not gallery_file.endswith('.json'):
+                        # Return relative path from kanka_jsons directory
+                        return f"gallery/{gallery_file}"
+            
+            # If not found with exact match, try partial match (for cases where extension might differ)
+            filename_without_ext = os.path.splitext(filename)[0]
+            for gallery_file in os.listdir(gallery_dir):
+                if gallery_file.startswith(filename_without_ext) and not gallery_file.endswith('.json'):
+                    # Return relative path from kanka_jsons directory
+                    return f"gallery/{gallery_file}"
+    
+    if not image_uuid:
+        return None
+    
+    # Look for the image file in the gallery directory
+    for filename in os.listdir(gallery_dir):
+        if filename.startswith(image_uuid) and '.' in filename:
+            # Skip JSON metadata files, only return actual image files
+            if not filename.endswith('.json'):
+                # Return relative path from kanka_jsons directory
+                return f"gallery/{filename}"
+    
+    return None
+
+def get_entity_image_markdown(entity_data, gallery_dir, entity_name):
+    """
+    Generate markdown image syntax for an entity if it has an image.
+    Args:
+        entity_data: Entity data dictionary
+        gallery_dir: Directory containing downloaded images
+        entity_name: Name of the entity for alt text
+    Returns:
+        str: Markdown image syntax or empty string if no image
+    """
+    image_path = get_entity_image_path(entity_data, gallery_dir)
+    if not image_path:
+        return ""
+    
+    # Generate markdown image syntax
+    return f"\n![{entity_name}]({image_path})\n"
 
 def paginate_and_columnize(lines, lines_per_page=55):
     pages = []
@@ -28,11 +97,12 @@ def paginate_and_columnize(lines, lines_per_page=55):
         result.append('\n'.join(col1) + '\n/\n' + '\n'.join(col2))
     return result
 
-def generate_worldbook(entities: dict, include_private=False, language: str = 'en') -> str:
+def generate_worldbook(entities: dict, include_private=False, include_posts=True, language: str = 'en') -> str:
     # Validate and set language
     language = validate_language(language)
     
     # Unpack known types for legacy rendering order
+    campaign = entities.get('campaign', {})
     locations = entities.get('locations', {})
     characters = entities.get('characters', [])
     charlocations = entities.get('charlocations', {})
@@ -155,6 +225,13 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
         lines.append(f"## {md_escape(name)} (({pluses}{anchor}))")
         lines.append("")
         
+        # Add entity image if available
+        gallery_dir = os.path.join(os.path.dirname(__file__), 'kanka_jsons', 'gallery')
+        if os.path.exists(gallery_dir):
+            image_markdown = get_entity_image_markdown(entity, gallery_dir, name)
+            if image_markdown:
+                lines.append(image_markdown)
+        
         entry_html = entity.get('entry') or ent.get('entry') or ''
         entry_cleaned = convert_mentions_in_html(entry_html)
         entry_md = replace_mentions(entry_cleaned, entity_map)
@@ -218,6 +295,41 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
                     lines.append(f"- **Unknown member {char_id}**")
             lines.append("")
         
+        # Add posts as subentities if they exist and include_posts is True
+        posts = ent.get('posts', [])
+        if posts and include_posts:
+            # Sort posts by position if available, otherwise by creation date
+            sorted_posts = sorted(posts, key=lambda p: (p.get('position', 0), p.get('created_at', '')))
+            
+            for post in sorted_posts:
+                # Skip private posts if include_private is False
+                # visibility_id: 1 = Public, 2 = Private (Admin only), 3 = Private (Self only)
+                if not include_private and post.get('visibility_id', 1) != 1:
+                    continue
+                
+                post_name = post.get('name', get_ui_text('unnamed_post', language))
+                post_entry = post.get('entry', '')
+                
+                # Skip posts with empty or minimal content (like just <br>)
+                if not post_entry or post_entry.strip() in ['<br>', '<br/>', '<br />', '']:
+                    continue
+                
+                # Create anchor for the post
+                post_anchor = create_anchor_label(f"{name}_{post_name}")
+                post_pluses = '+' * (depth + 3)  # One level deeper than the parent entity
+                
+                # Add post as subentity with header level depth + 3 (h3 for depth 0, h4 for depth 1, etc.)
+                lines.append(f"### {md_escape(post_name)} (({post_pluses}{post_anchor}))")
+                lines.append("")
+                
+                # Process post content
+                post_entry_cleaned = convert_mentions_in_html(post_entry)
+                post_entry_md = replace_mentions(post_entry_cleaned, entity_map)
+                
+                lines.append(f"{post_entry_md}\n")
+                lines.append("---")
+                lines.append("")
+        
         lines.append("---")
         return lines
     
@@ -254,152 +366,9 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
         
         return lines
 
-    # Splits a list of markdown lines into "visual blocks" for pagination/columnization.
-    # It joins the lines into a single string, then splits at points that look like the start of a new
-    # paragraph, header, list item, or other major markdown/HTML block element.
-    # This helps keep related content together when paginating or splitting into columns.
-    def split_visual_blocks(section_lines):
-        text = '\n'.join(section_lines)
-        # Split at the start of HTML block tags or markdown headers/lists
-        blocks = re.split(
-            r'(?=<p|<hr|<div|<h[1-6]|<li|^#|^\* |^- |^\d+\. )',
-            text,
-            flags=re.MULTILINE
-        )
-        # Remove empty blocks and strip whitespace
-        blocks = [b.strip() for b in blocks if b.strip()]
-        return blocks
-
+    # Simple function that adds all lines without pagination
     def add_section(section_lines, output_lines):
-        blocks = split_visual_blocks(section_lines)
-        lines_per_page = 80  # number of actual lines per page (increased from 35)
-        min_blocks_for_page = 5  # reduced from 10
-        min_blocks_for_column = 3  # reduced from 6
-
-        # Helper: is this block a section header?
-        # (moved import re to the top of the file)
-
-        def is_section_header(block):
-            block = block.lstrip()
-            # Match markdown headers (#, ##, ###, etc.) or HTML headers (<h1>, <h2>, ..., <h6>)
-            return (
-                re.match(r'^#{1,6} ', block) is not None or
-                re.match(r'^<h[1-6][ >]', block, re.IGNORECASE) is not None
-            )
-
-        # Count actual lines in a block
-        def count_lines_in_block(block):
-            return len(block.split('\n'))
-
-        # Remove section headers from the end of a list of blocks, returning both trimmed blocks and removed headers
-        def trim_trailing_section_headers(blocks):
-            trimmed = list(blocks)
-            removed = []
-            while trimmed and is_section_header(trimmed[-1]):
-                removed.insert(0, trimmed[-1])  # insert at start to preserve order
-                trimmed.pop()
-            #if removed:
-                #print(f"[DEBUG] trim_trailing_section_headers called. Removed section headers: {removed}")
-            return trimmed, removed
-
-        pages = []
-        current = []
-        current_line_count = 0
-        i = 0
-        while i < len(blocks):
-            block = blocks[i]
-            block_line_count = count_lines_in_block(block)
-            
-            # If adding this block would exceed the page limit, check for a subsection in the next 4 blocks
-            if current_line_count + block_line_count > lines_per_page and current:
-                lookahead = 1
-                found_subsection = False
-                while lookahead <= 4 and (i + lookahead) < len(blocks):
-                    next_block = blocks[i + lookahead].lstrip()
-                    if next_block.startswith('## ') or next_block.startswith('<h2'):
-                        # Add the subsection and its content to current page
-                        for j in range(lookahead):
-                            current.append(blocks[i + j])
-                            current_line_count += count_lines_in_block(blocks[i + j])
-                        i += lookahead
-                        found_subsection = True
-                        break
-                    lookahead += 1
-                
-                # Only break the page if it has enough content
-                if len(current) < min_blocks_for_page and pages:
-                    # Merge with previous page
-                    pages[-1].extend(current)
-                else:
-                    pages.append(list(current))
-                current = []
-                current_line_count = 0
-            
-            # Add the current block
-            current.append(block)
-            current_line_count += block_line_count
-            i += 1
-            
-        if current:
-            if len(current) < min_blocks_for_page and pages:
-                pages[-1].extend(current)
-            else:
-                pages.append(list(current))
-                
-        # After building pages, merge any page that starts with a section header and is very short
-        merged_pages = []
-        for page in pages:
-            if (
-                merged_pages
-                and page
-                and is_section_header(page[0])
-                and len(page) < min_blocks_for_page
-            ):
-                # Merge with previous page
-                merged_pages[-1].extend(page)
-            else:
-                merged_pages.append(page)
-        pages = merged_pages
-        
-        # Move trailing section headers from end of each page to start of next page
-        for idx in range(len(pages) - 1):
-            trimmed, removed = trim_trailing_section_headers(pages[idx])
-            pages[idx] = trimmed
-            if removed:
-                # Always move section headers to the start of the next page, never leave at end of previous
-                # Remove any duplicate headers at the start of the next page
-                while pages[idx + 1] and is_section_header(pages[idx + 1][0]) and pages[idx + 1][0].strip() in [h.strip() for h in removed]:
-                    pages[idx + 1].pop(0)
-                pages[idx + 1] = removed + pages[idx + 1]
-        # Last page: keep any trailing headers
-        last_trimmed, last_removed = trim_trailing_section_headers(pages[-1])
-        pages[-1] = last_trimmed + last_removed
-
-        # Output pages/columns
-        for idx, page in enumerate(pages):
-            if len(page) < min_blocks_for_column * 2:
-                # Not enough for two columns, output as single column
-                if output_lines and (idx > 0 or len(output_lines) > 0):
-                    output_lines.append('=')
-                output_lines.append('\n'.join(page))
-            else:
-                mid = len(page) // 2
-                col1 = page[:mid]
-                col2 = page[mid:]
-                # Move trailing section headers from col1 to start of col2
-                col1_trimmed, col1_removed = trim_trailing_section_headers(col1)
-                # Remove any duplicate headers at the start of col2
-                while col2 and is_section_header(col2[0]) and col2[0].strip() in [h.strip() for h in col1_removed]:
-                    col2.pop(0)
-                col2 = col1_removed + col2
-                # Move trailing section headers from col2 to end of col2 (since no next column)
-                col2_trimmed, col2_removed = trim_trailing_section_headers(col2)
-                col2 = col2_trimmed + col2_removed
-                if output_lines and (idx > 0 or len(output_lines) > 0):
-                    output_lines.append('=')
-                output_lines.append('\n'.join(col1_trimmed))
-                output_lines.append('|')
-                output_lines.append('\n'.join(col2))
+        output_lines.extend(section_lines)
 
     # Helper to check privacy
     def is_private_obj(obj):
@@ -535,16 +504,36 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
         if loc_id and loc_id in location_by_id:
             parent_entity_id = location_by_id[loc_id]['entity']['id']
             chars_by_location[parent_entity_id].append(char)
-    def write_location(loc, depth=5):
+    
+
+    def write_location(loc, depth=0, max_depth=10):
+        if depth > max_depth:
+            return []
+        
         ent = loc['entity']
         loc_name = loc.get('name') or ent.get('name', 'Unnamed Location')
         anchor = create_anchor_label(loc_name)
-        pluses = '+' * depth
-        # print(f"[DEBUG] Rendering location: {loc_name}, depth: {depth}")
+        
+        # Calculate proper header level: h2 for root locations, h3 for children, etc.
+        header_level = depth + 2
+        header_markers = '#' * header_level
+        
+        # Calculate pluses for anchor (depth + 2 to match other entities)
+        pluses = '+' * (depth + 2)
+        
         lines = []
-        # Add extra newlines before h7, h8, or lower headers
-        extra_newlines = '\n\n' if depth >= 7 else ''
-        lines.append(f'\n{extra_newlines}{"#" * depth} {md_escape(loc_name)} (({pluses}{anchor}))\n\n')
+        
+        # Add extra newlines before deeper headers for better readability
+        extra_newlines = '\n\n' if depth >= 4 else ''
+        lines.append(f'\n{extra_newlines}{header_markers} {md_escape(loc_name)} (({pluses}{anchor}))\n\n')
+        
+        # Add location image if available
+        gallery_dir = os.path.join(os.path.dirname(__file__), 'kanka_jsons', 'gallery')
+        if os.path.exists(gallery_dir):
+            image_markdown = get_entity_image_markdown(loc, gallery_dir, loc_name)
+            if image_markdown:
+                lines.append(image_markdown)
+        
         entry_html = loc.get('entry') or ent.get('entry') or ''
         entry_cleaned = convert_mentions_in_html(entry_html)
         entry_md = replace_mentions(entry_cleaned, entity_map)
@@ -568,9 +557,13 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
                 c_anchor = create_anchor_label(c_name)
                 lines.append(f"- [{md_escape(c_name)}](#{c_anchor})\n")
             lines.append('\n')
+        
+        # Recursively write child locations with proper depth management
         for child_loc in sorted(loc_children.get(loc['id'], []), key=lambda x: x.get('name') or x['entity'].get('name', '')):
-            lines.append(write_location(child_loc, depth + 1))
-        return ''.join(lines)
+            child_lines = write_location(child_loc, depth + 1, max_depth)
+            lines.extend(child_lines)
+        
+        return lines
     # --- Races and Subraces ---
     race_children = defaultdict(list)
     root_races = []
@@ -580,16 +573,34 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
             race_children[parent_id].append(race)
         else:
             root_races.append(race)
-    def write_race(race, depth=2):
+    def write_race(race, depth=0, max_depth=10):
+        if depth > max_depth:
+            return []
+        
         ent = race.get('entity', {})
         race_name = race.get('name') or ent.get('name', 'Unnamed Race')
         anchor = create_anchor_label(race_name)
-        pluses = '+' * depth
-        # print(f"[DEBUG] Rendering race: {race_name}, depth: {depth}")
+        
+        # Calculate proper header level: h2 for root races, h3 for children, etc.
+        header_level = depth + 2
+        header_markers = '#' * header_level
+        
+        # Calculate pluses for anchor (depth + 2 to match other entities)
+        pluses = '+' * (depth + 2)
+        
         lines = []
-        # Add extra newlines before h7, h8, or lower headers
-        extra_newlines = '\n\n' if depth >= 7 else ''
-        lines.append(f'\n{extra_newlines}{"#" * depth} {md_escape(race_name)} (({pluses}{anchor}))\n\n')
+        
+        # Add extra newlines before deeper headers for better readability
+        extra_newlines = '\n\n' if depth >= 4 else ''
+        lines.append(f'\n{extra_newlines}{header_markers} {md_escape(race_name)} (({pluses}{anchor}))\n\n')
+        
+        # Add race image if available
+        gallery_dir = os.path.join(os.path.dirname(__file__), 'kanka_jsons', 'gallery')
+        if os.path.exists(gallery_dir):
+            image_markdown = get_entity_image_markdown(race, gallery_dir, race_name)
+            if image_markdown:
+                lines.append(image_markdown)
+        
         entry_html = race.get('entry') or ent.get('entry') or ''
         entry_cleaned = convert_mentions_in_html(entry_html)
         entry_md = replace_mentions(entry_cleaned, entity_map)
@@ -604,9 +615,13 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
             lines.append("\n---\n**Részletek:**\n" + details_block + "\n\n")
         if entry_md.strip():
             lines.append(f"{entry_md}\n\n")
+        
+        # Recursively write child races with proper depth management
         for child_race in sorted(race_children.get(race['id'], []), key=lambda x: x.get('name') or x.get('entity', {}).get('name', '')):
-            lines.append(write_race(child_race, depth + 1))
-        return ''.join(lines)
+            child_lines = write_race(child_race, depth + 1, max_depth)
+            lines.extend(child_lines)
+        
+        return lines
     def generate_organizations(organizations, entity_map, character_id_to_entity_id, language='en'):
         markdown = f"\n# {get_chapter_title('organizations', language)}  ((+{get_chapter_slug('organizations', language)}))\n\n"
         for org in sorted(organizations, key=lambda o: o.get('name') or o.get('entity', {}).get('name', '')):
@@ -615,6 +630,14 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
             anchor = create_anchor_label(org_name)
             pluses = '++'
             markdown += f"## {md_escape(org_name)} (({pluses}{anchor}))\n\n"
+            
+            # Add organization image if available
+            gallery_dir = os.path.join(os.path.dirname(__file__), 'kanka_jsons', 'gallery')
+            if os.path.exists(gallery_dir):
+                image_markdown = get_entity_image_markdown(org, gallery_dir, org_name)
+                if image_markdown:
+                    markdown += image_markdown
+            
             entry = ent.get('entry')
             details = []
             if is_private_obj(org):
@@ -655,6 +678,14 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
             anchor = create_anchor_label(name)
             pluses = '++'
             markdown += f"## {md_escape(name)} (({pluses}{anchor}))\n\n"
+            
+            # Add entity image if available
+            gallery_dir = os.path.join(os.path.dirname(__file__), 'kanka_jsons', 'gallery')
+            if os.path.exists(gallery_dir):
+                image_markdown = get_entity_image_markdown(e, gallery_dir, name)
+                if image_markdown:
+                    markdown += image_markdown
+            
             entry_html = e.get('entry') or e.get('entity', {}).get('entry') or ''
             entry_cleaned = convert_mentions_in_html(entry_html)
             entry_md = replace_mentions(entry_cleaned, entity_map)
@@ -707,12 +738,47 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
     # Render sections in order with hierarchy support
     output_lines = []
     
+    # Campaign Overview (first chapter)
+    if campaign:
+        campaign_section = []
+        campaign_name = campaign.get('name', 'Campaign Overview')
+        campaign_section.append(f"# {md_escape(campaign_name)} ((+campaign-overview))")
+        campaign_section.append('')
+        
+        # Add campaign image if available
+        gallery_dir = os.path.join(os.path.dirname(__file__), 'kanka_jsons', 'gallery')
+        if os.path.exists(gallery_dir):
+            image_markdown = get_entity_image_markdown(campaign, gallery_dir, campaign_name)
+            if image_markdown:
+                campaign_section.append(image_markdown)
+        
+        # Process campaign entry/description
+        entry_html = campaign.get('entry', '')
+        if entry_html:
+            entry_cleaned = convert_mentions_in_html(entry_html)
+            entry_md = replace_mentions(entry_cleaned, entity_map)
+            campaign_section.append(f"{entry_md}\n")
+        
+        # Add campaign details (only excerpt, no timestamps)
+        details = []
+        if campaign.get('excerpt'):
+            details.append(f"- **Összefoglaló:** {md_escape(campaign['excerpt'])}")
+        
+        if details:
+            details_block = '\n'.join(details)
+            campaign_section.append("\n---\n**Részletek:**\n")
+            campaign_section.append(details_block)
+            campaign_section.append("\n")
+        
+        campaign_section.append("---")
+        add_section(campaign_section, output_lines)
+    
     # Locations (keep existing hierarchical logic)
     loc_section = []
     loc_section.append(f"# {get_chapter_title('locations', language)} ((+{get_chapter_slug('locations', language)}))")
     loc_section.append('')
-    for root_loc in sorted(locations.values(), key=lambda x: x.get('name') or x['entity'].get('name', '')):
-        loc_section.extend(write_location(root_loc).split('\n'))
+    for root_loc in sorted(root_locations, key=lambda x: x.get('name') or x['entity'].get('name', '')):
+        loc_section.extend(write_location(root_loc))
     if loc_section:
         add_section(loc_section, output_lines)
     
@@ -791,9 +857,59 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
                     details_block = '\n' + details_block
                 details_md = "\n\n---\n**Részletek:**\n" + details_block + "\n\n"
             chars_section.append(f"## {md_escape(c_name)} ((++{anchor}))\n\n")
-            chars_section.append(f"{details_md}{entry}\n\n---\n")
+            
+            # Add character image if available
+            gallery_dir = os.path.join(os.path.dirname(__file__), 'kanka_jsons', 'gallery')
+            if os.path.exists(gallery_dir):
+                image_markdown = get_entity_image_markdown(c, gallery_dir, c_name)
+                if image_markdown:
+                    chars_section.append(image_markdown)
+            
+            chars_section.append(f"{details_md}{entry}\n")
+            
+            # Add posts as subentities if they exist for characters and include_posts is True
+            c_ent = c.get('entity', {})
+            posts = c_ent.get('posts', [])
+            if posts and include_posts:
+                # Sort posts by position if available, otherwise by creation date
+                sorted_posts = sorted(posts, key=lambda p: (p.get('position', 0), p.get('created_at', '')))
+                
+                for post in sorted_posts:
+                    # Skip private posts if include_private is False
+                    # visibility_id: 1 = Public, 2 = Private (Admin only), 3 = Private (Self only)
+                    if not include_private and post.get('visibility_id', 1) != 1:
+                        continue
+                    
+                    post_name = post.get('name', get_ui_text('unnamed_post', language))
+                    post_entry = post.get('entry', '')
+                    
+                    # Skip posts with empty or minimal content (like just <br>)
+                    if not post_entry or post_entry.strip() in ['<br>', '<br/>', '<br />', '']:
+                        continue
+                    
+                    # Create anchor for the post
+                    post_anchor = create_anchor_label(f"{c_name}_{post_name}")
+                    post_pluses = '+++'  # One level deeper than the character (++ -> +++)
+                    
+                    # Add post as subentity with header level h3 (one level deeper than character's h2)
+                    chars_section.append(f"### {md_escape(post_name)} (({post_pluses}{post_anchor}))\n\n")
+                    
+                    # Process post content
+                    post_entry_cleaned = convert_mentions_in_html(post_entry)
+                    post_entry_md = replace_mentions(post_entry_cleaned, entity_map)
+                    
+
+                    
+                    chars_section.append(f"{post_entry_md}\n")
+                    chars_section.append("---")
+                    chars_section.append("")
+            
+            chars_section.append("---\n")
     if chars_section:
-        add_section(chars_section, output_lines)
+        # For characters section, we want all characters to be included
+        # The add_section function does pagination which might filter out some characters
+        # So we'll add the characters section directly to ensure all characters are included
+        output_lines.extend(chars_section)
     
     # Events (use hierarchical rendering)
     if events:
@@ -829,7 +945,7 @@ def generate_worldbook(entities: dict, include_private=False, language: str = 'e
     races_section.append(f"# {get_chapter_title('races', language)} ((+{get_chapter_slug('races', language)}))")
     races_section.append('')
     for root_race in sorted(root_races, key=lambda x: x.get('name') or x.get('entity', {}).get('name', '')):
-        races_section.extend(write_race(root_race).split('\n'))
+        races_section.extend(write_race(root_race))
     if races_section:
         add_section(races_section, output_lines)
     

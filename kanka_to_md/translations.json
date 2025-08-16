@@ -52,7 +52,8 @@
       "family_members": "Családtagok",
       "characters_at_location": "Karakterek ezen a helyszínen",
       "members": "Tagok",
-      "unknown_member": "Ismeretlen tag"
+      "unknown_member": "Ismeretlen tag",
+      "unnamed_post": "Névtelen bejegyzés"
     }
   },
   "en": {
@@ -108,7 +109,8 @@
       "family_members": "Family Members",
       "characters_at_location": "Characters at this Location",
       "members": "Members",
-      "unknown_member": "Unknown Member"
+      "unknown_member": "Unknown Member",
+      "unnamed_post": "Unnamed Post"
     }
   }
 } 

@@ -7,6 +7,7 @@ Provides helpers to:
 - Load and save configuration and run state
 - Fetch and update entities from Kanka (with retry logic)
 - Download and organize entity data for downstream processing
+- Download images from Kanka gallery
 
 Intended for use in the Kanka to Markdown/HTML/PDF workflow.
 """
@@ -39,8 +40,33 @@ logger = logging.getLogger(__name__)
 
 def load_config():
     """Load API configuration from config.json"""
-    with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    try:
+        if not os.path.exists(CONFIG_PATH):
+            logger.error(f"❌ Configuration file not found: {CONFIG_PATH}")
+            logger.error("Please copy kanka_to_md/config.template.json to kanka_to_md/config.json and fill in your API credentials")
+            raise FileNotFoundError(f"Configuration file not found: {CONFIG_PATH}")
+        
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            
+        # Validate required fields
+        required_fields = ['api_token', 'campaign_id']
+        missing_fields = [field for field in required_fields if field not in config or not config[field]]
+        
+        if missing_fields:
+            logger.error(f"❌ Configuration file is missing required fields: {missing_fields}")
+            logger.error("Please check your config.json file and ensure all required fields are present")
+            raise ValueError(f"Configuration file missing required fields: {missing_fields}")
+            
+        return config
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Configuration file contains invalid JSON: {e}")
+        logger.error(f"Please check the syntax of your config file: {CONFIG_PATH}")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error reading configuration file: {e}")
+        raise
 
 
 def save_last_run_time(dt: datetime):
@@ -57,13 +83,32 @@ def save_last_run_time(dt: datetime):
 def load_last_run_time():
     """Load the last run time from last_run.json, make it timezone-aware"""
     if not os.path.exists(LAST_RUN_PATH):
+        logger.info("No last_run.json file found - will process all data")
         return None
-    with open(LAST_RUN_PATH, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    
+    try:
+        with open(LAST_RUN_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        if 'last_run' not in data:
+            logger.warning("⚠️ last_run.json file exists but is missing 'last_run' field")
+            logger.warning("Will process all data from the beginning")
+            return None
+            
         dt = datetime.fromisoformat(data['last_run'])
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
+        logger.info(f"Loaded last run time: {dt}")
         return dt
+        
+    except json.JSONDecodeError as e:
+        logger.warning(f"⚠️ last_run.json contains invalid JSON: {e}")
+        logger.warning("Will process all data from the beginning")
+        return None
+    except Exception as e:
+        logger.warning(f"⚠️ Error reading last_run.json: {e}")
+        logger.warning("Will process all data from the beginning")
+        return None
 
 
 def download_kanka_export():
@@ -205,6 +250,17 @@ def filter_updated_entities(entities, last_run):
         yield entity
 
 
+def fetch_entity_posts(entity_id, campaign_id, headers):
+    """Fetch posts for a specific entity."""
+    posts_url = f'https://api.kanka.io/1.0/campaigns/{campaign_id}/entities/{entity_id}/posts'
+    posts_resp = fetch_with_retries(posts_url, headers)
+    if not posts_resp or posts_resp.status_code != 200:
+        logger.debug(f"No posts found for entity {entity_id} or failed to fetch")
+        return []
+    posts_data = posts_resp.json().get('data', [])
+    logger.debug(f"Found {len(posts_data)} posts for entity {entity_id}")
+    return posts_data
+
 def fetch_full_entity_data(entity, campaign_id, headers):
     """Fetch the full child data for an entity from the type-specific endpoint."""
     entity_type = entity.get('type')
@@ -221,6 +277,18 @@ def fetch_full_entity_data(entity, campaign_id, headers):
         logger.warning(f"Failed to fetch {entity_type} {child_id} for entity {entity['id']} after retries.")
         return None, None, None
     child_data = child_resp.json().get('data')
+    
+    # Fetch posts for this entity
+    entity_id = entity.get('id')
+    if entity_id:
+        posts = fetch_entity_posts(entity_id, campaign_id, headers)
+        if posts:
+            # Put posts in the entity section for character processing
+            if 'entity' in child_data:
+                child_data['entity']['posts'] = posts
+            # Also keep posts at root level for hierarchical processing
+            child_data['posts'] = posts
+    
     return endpoint, child_id, child_data
 
 
@@ -252,10 +320,244 @@ def save_all_entity_metadata(entities_dir, all_entities):
                 json.dump(entity, f, ensure_ascii=False, indent=2)
 
 
+def fetch_campaign_images(campaign_id, headers):
+    """
+    Fetch all images from the campaign gallery.
+    Args:
+        campaign_id: The campaign ID
+        headers: Request headers with API token
+    Returns:
+        List of image metadata dictionaries
+    """
+    logger.info(f"Fetching images from campaign {campaign_id}...")
+    images_url = f'https://api.kanka.io/1.0/campaigns/{campaign_id}/images'
+    
+    try:
+        response = fetch_with_retries(images_url, headers)
+        if not response:
+            logger.error("Failed to fetch images after retries")
+            return []
+        
+        data = response.json()
+        images = data.get('data', [])
+        logger.info(f"Found {len(images)} images in campaign gallery")
+        return images
+        
+    except Exception as e:
+        logger.error(f"Exception while fetching images: {e}")
+        return []
+
+
+def download_image_file(image_metadata, output_dir):
+    """
+    Download a single image file from Kanka's CDN.
+    Args:
+        image_metadata: Image metadata dictionary from the API
+        output_dir: Directory to save the image file
+    Returns:
+        bool: True if download successful, False otherwise
+    """
+    image_id = image_metadata.get('id')
+    image_path = image_metadata.get('path')
+    image_ext = image_metadata.get('ext', 'jpg')
+    
+    if not image_path:
+        logger.warning(f"No path found for image {image_id}")
+        return False
+    
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Generate output filename
+    output_filename = f"{image_id}.{image_ext}"
+    output_path = os.path.join(output_dir, output_filename)
+    
+    # Check if file already exists
+    if os.path.exists(output_path):
+        logger.debug(f"Image {image_id} already exists, skipping download")
+        return True
+    
+    try:
+        logger.debug(f"Downloading image {image_id} from {image_path}")
+        
+        # Download image (no authentication needed for CDN)
+        response = requests.get(image_path, timeout=30)
+        response.raise_for_status()
+        
+        # Save image file
+        with open(output_path, 'wb') as f:
+            f.write(response.content)
+        
+        logger.debug(f"Successfully downloaded image {image_id} ({len(response.content)} bytes)")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to download image {image_id}: {e}")
+        return False
+
+
+def save_image_metadata(output_dir, image_metadata):
+    """
+    Save image metadata to JSON file.
+    Args:
+        output_dir: Directory to save the metadata
+        image_metadata: Image metadata dictionary
+    """
+    image_id = image_metadata.get('id')
+    if not image_id:
+        return
+    
+    os.makedirs(output_dir, exist_ok=True)
+    metadata_path = os.path.join(output_dir, f'{image_id}.json')
+    
+    try:
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(image_metadata, f, ensure_ascii=False, indent=2)
+        logger.debug(f"Saved metadata for image {image_id}")
+    except Exception as e:
+        logger.error(f"Failed to save metadata for image {image_id}: {e}")
+
+
+def download_campaign_images(campaign_id, headers, output_dir):
+    """
+    Download all images from the campaign gallery.
+    Args:
+        campaign_id: The campaign ID
+        headers: Request headers with API token
+        output_dir: Directory to save images and metadata
+    Returns:
+        int: Number of images successfully downloaded
+    """
+    logger.info(f"Starting image download for campaign {campaign_id}")
+    
+    # Fetch all images
+    images = fetch_campaign_images(campaign_id, headers)
+    if not images:
+        logger.warning("No images found or failed to fetch image list")
+        return 0
+    
+    # Download each image
+    successful_downloads = 0
+    for image in images:
+        image_id = image.get('id')
+        logger.debug(f"Processing image {image_id}")
+        
+        # Save metadata first
+        save_image_metadata(output_dir, image)
+        
+        # Download image file
+        if download_image_file(image, output_dir):
+            successful_downloads += 1
+    
+    logger.info(f"Image download complete: {successful_downloads}/{len(images)} images downloaded successfully")
+    return successful_downloads
+
+
+def fetch_campaign_data(campaign_id, headers):
+    """
+    Fetch campaign data from the API.
+    Args:
+        campaign_id: The campaign ID
+        headers: Request headers with API token
+    Returns:
+        Campaign data dictionary or None if failed
+    """
+    logger.info(f"Fetching campaign data for campaign {campaign_id}...")
+    campaign_url = f'https://api.kanka.io/1.0/campaigns/{campaign_id}'
+    
+    try:
+        response = fetch_with_retries(campaign_url, headers)
+        if not response:
+            logger.error("Failed to fetch campaign data after retries")
+            return None
+        
+        data = response.json()
+        campaign = data.get('data', {})
+        logger.info(f"Successfully fetched campaign data: {campaign.get('name', 'Unknown')}")
+        return campaign
+        
+    except Exception as e:
+        logger.error(f"Exception while fetching campaign data: {e}")
+        return None
+
+
+def download_campaign_image(campaign_data, output_dir):
+    """
+    Download campaign image if available.
+    Args:
+        campaign_data: Campaign data dictionary from the API
+        output_dir: Directory to save the image file
+    Returns:
+        bool: True if download successful or no image, False if failed
+    """
+    campaign_id = campaign_data.get('id')
+    image_path = campaign_data.get('image')
+    
+    if not image_path:
+        logger.info(f"No image found for campaign {campaign_id}")
+        return True
+    
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Extract filename from path
+    filename = os.path.basename(image_path)
+    output_path = os.path.join(output_dir, filename)
+    
+    # Check if file already exists
+    if os.path.exists(output_path):
+        logger.debug(f"Campaign image {filename} already exists, skipping download")
+        return True
+    
+    try:
+        logger.info(f"Downloading campaign image: {filename}")
+        
+        # Construct full URL for campaign image
+        # Campaign images are typically served from Kanka's CDN
+        image_url = f"https://kanka-user-assets.s3.eu-central-1.amazonaws.com/{image_path}"
+        
+        # Download image (no authentication needed for CDN)
+        response = requests.get(image_url, timeout=30)
+        response.raise_for_status()
+        
+        # Save image file
+        with open(output_path, 'wb') as f:
+            f.write(response.content)
+        
+        logger.info(f"Successfully downloaded campaign image {filename} ({len(response.content)} bytes)")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to download campaign image {filename}: {e}")
+        return False
+
+
+def save_campaign_metadata(output_dir, campaign_data):
+    """
+    Save campaign metadata to JSON file.
+    Args:
+        output_dir: Directory to save the metadata
+        campaign_data: Campaign data dictionary
+    """
+    campaign_id = campaign_data.get('id')
+    if not campaign_id:
+        return
+    
+    os.makedirs(output_dir, exist_ok=True)
+    metadata_path = os.path.join(output_dir, 'campaign.json')
+    
+    try:
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(campaign_data, f, ensure_ascii=False, indent=2)
+        logger.debug(f"Saved campaign metadata")
+    except Exception as e:
+        logger.error(f"Failed to save campaign metadata: {e}")
+
+
 def fetch_and_save_updated_entities():
     """
     MAIN FUNCTION: Fetch all entities from Kanka, check which ones were updated since last run,
-    and download their full data to local JSON files.
+    and download their full data to local JSON files. Also download all campaign images.
     """
     config = load_config()
     api_token = config['api_token']
@@ -322,6 +624,30 @@ def fetch_and_save_updated_entities():
     
     logger.info(f"🔍 END KANKA PATH DIAGNOSTICS")
     
+    # Download campaign data and image
+    logger.info("📋 Fetching campaign data...")
+    campaign_data = fetch_campaign_data(campaign_id, headers)
+    if campaign_data:
+        save_campaign_metadata(kanka_jsons_dir, campaign_data)
+        logger.info("✅ Campaign data saved")
+        
+        # Download campaign image
+        logger.info("🖼️ Downloading campaign image...")
+        gallery_dir = os.path.join(kanka_jsons_dir, 'gallery')
+        campaign_image_success = download_campaign_image(campaign_data, gallery_dir)
+        if campaign_image_success:
+            logger.info("✅ Campaign image downloaded successfully")
+        else:
+            logger.warning("⚠️ Failed to download campaign image")
+    else:
+        logger.warning("⚠️ Failed to fetch campaign data")
+        gallery_dir = os.path.join(kanka_jsons_dir, 'gallery')
+    
+    # Download entity images
+    logger.info("🖼️ Starting entity image download...")
+    images_downloaded = download_campaign_images(campaign_id, headers, gallery_dir)
+    logger.info(f"🖼️ Entity image download complete: {images_downloaded} images processed")
+    
     all_entities = fetch_all_entities(base_url, headers)
     logger.info(f"Fetched {len(all_entities)} entities from API")
     
@@ -342,4 +668,5 @@ def fetch_and_save_updated_entities():
     save_all_entity_metadata(entities_dir, all_entities)
     logger.info(f"Done! Total updated entities saved: {total_saved}")
     logger.info(f"Files saved in: {os.path.join(kanka_raw_jsons_dir, '*/')}")
-    logger.info(f"Combined data saved in: {os.path.join(kanka_jsons_dir, '*/')}") 
+    logger.info(f"Combined data saved in: {os.path.join(kanka_jsons_dir, '*/')}")
+    logger.info(f"Images saved in: {gallery_dir}") 

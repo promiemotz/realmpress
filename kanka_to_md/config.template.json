@@ -1,5 +1,6 @@
 {
   "include_private": false,
+  "include_posts": true,
   "language": "en",
   "api_token": "INSERT your Kanka API token here",
   "campaign_id": 123456,

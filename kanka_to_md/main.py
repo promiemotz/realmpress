@@ -337,11 +337,23 @@ def process_entities(INPUT_FOLDER, logger):
             count = len(entities)
         logger.info(f"{label} found: {count}")
     
+    # Load campaign data if available
+    campaign_file = os.path.join(absolute_input_folder, 'campaign.json')
+    campaign_data = {}
+    if os.path.exists(campaign_file):
+        try:
+            with open(campaign_file, 'r', encoding='utf-8') as f:
+                campaign_data = json.load(f)
+            logger.info(f"Campaign data loaded: {campaign_data.get('name', 'Unknown Campaign')}")
+        except Exception as e:
+            logger.warning(f"Could not load campaign.json: {e}")
+    
     # Build entity map and character mappings
     entity_map = build_entity_map(entries)
     character_id_to_entity_id = build_character_id_to_entity_id(entries)
     
     # Add these to the entities dict
+    entities_by_type['campaign'] = campaign_data
     entities_by_type['entity_map'] = entity_map
     entities_by_type['character_id_to_entity_id'] = character_id_to_entity_id
     
@@ -349,7 +361,7 @@ def process_entities(INPUT_FOLDER, logger):
     
     return entities_by_type
 
-def generate_markdown(entities, include_private, OUTPUT_FILE, logger, language='en'):
+def generate_markdown(entities, include_private, OUTPUT_FILE, logger, language='en', include_posts=True):
     """
     STEP 3: Generate the markdown worldbook
     ---------------------------------------
@@ -362,7 +374,7 @@ def generate_markdown(entities, include_private, OUTPUT_FILE, logger, language='
     """
     from .worldbook_generator import generate_worldbook
     from .io_utils import save_markdown
-    markdown = generate_worldbook(entities, include_private=include_private, language=language)
+    markdown = generate_worldbook(entities, include_private=include_private, include_posts=include_posts, language=language)
     save_markdown(OUTPUT_FILE, markdown)
     logger.info(f"Worldbook generated: {OUTPUT_FILE}")
 
@@ -455,8 +467,9 @@ def main_with_config(config=None):
     if config is None:
         config = load_config(os.path.join("kanka_to_md", "config.json"))
     include_private = config.get("include_private", False)
+    include_posts = config.get("include_posts", True)
     language = config.get("language", "en")
-    logger.info(f"Loaded config: include_private = {include_private}, language = {language}")
+    logger.info(f"Loaded config: include_private = {include_private}, include_posts = {include_posts}, language = {language}")
     
     # Get current time for tracking when we last ran
     try:
@@ -487,7 +500,7 @@ def main_with_config(config=None):
     
     # STEP 3: Generate the markdown worldbook
     try:
-        generate_markdown(entities, include_private, OUTPUT_FILE, logger, language)
+        generate_markdown(entities, include_private, OUTPUT_FILE, logger, language, include_posts)
         step_results['generate_markdown'] = 'SUCCESS'
     except Exception as e:
         logger.error(f"❌ Error during markdown generation: {e}")
