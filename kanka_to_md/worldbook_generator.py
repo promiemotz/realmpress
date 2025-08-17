@@ -238,7 +238,7 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
         
         details = []
         if is_private_obj(entity):
-            details.append("- **Privát:** Igen")
+            details.append(f"- **{get_ui_text('private', language)}:** {get_ui_text('yes', language)}")
         
         # Add location as a markdown link if available
         loc_name = None
@@ -247,10 +247,10 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
             loc_name = loc.get('name') or loc.get('entity', {}).get('name')
         if loc_name:
             loc_anchor = create_anchor_label(loc_name)
-            details.append(f"- **Tartózkodási hely:** [{md_escape(loc_name)}](#{loc_anchor})")
+            details.append(f"- **{get_ui_text('location', language)}:** [{md_escape(loc_name)}](#{loc_anchor})")
         
         if 'type' in ent and ent['type']:
-            details.append(f"- **Típus:** {md_escape(ent['type'])}")
+            details.append(f"- **{get_ui_text('type', language)}:** {md_escape(ent['type'])}")
         
         if ent.get('tags'):
             tag_names = []
@@ -261,20 +261,20 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
                     tag_names.append(tag)
                 # Skip if tag is an integer or other non-string/non-dict type
             if tag_names:
-                details.append(f"- **Címkék:** {', '.join(tag_names)}")
+                details.append(f"- **{get_ui_text('tags', language)}:** {', '.join(tag_names)}")
         
         if 'age' in entity and entity['age']:
-            details.append(f"- **Életkor:** {entity['age']}")
+            details.append(f"- **{get_ui_text('age', language)}:** {entity['age']}")
         
         if 'gender' in entity and entity['gender']:
-            details.append(f"- **Nem:** {entity['gender']}")
+            details.append(f"- **{get_ui_text('gender', language)}:** {entity['gender']}")
         
         details_md = ""
         if details:
             details_block = '\n'.join(details)
             if not details_block.startswith('\n- '):
                 details_block = '\n' + details_block
-            details_md = "\n\n---\n**Részletek:**\n" + details_block + "\n\n"
+            details_md = f"\n\n---\n**{get_ui_text('details', language)}:**\n" + details_block + "\n\n"
         
         full_entry = details_md + entry_md
         lines.append(f"{full_entry}")
@@ -282,7 +282,7 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
         # Add family members if this is a family
         pivot_members = entity.get('pivotMembers', [])
         if pivot_members:
-            lines.append("**Családtagok:**\n")
+            lines.append(f"**{get_ui_text('family_members', language)}:**\n")
             for member in pivot_members:
                 char_id = member.get('character_id')
                 entity_id = character_id_to_entity_id.get(char_id)
@@ -539,18 +539,18 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
         entry_md = replace_mentions(entry_cleaned, entity_map)
         details = []
         if is_private_obj(loc):
-            details.append("- **Privát:** Igen")
+            details.append(f"- **{get_ui_text('private', language)}:** {get_ui_text('yes', language)}")
         if details:
             # Ensure a blank line before the list
             details_block = '\n'.join(details)
             if not details_block.startswith('\n- '):
                 details_block = '\n' + details_block
-            lines.append("\n---\n**Részletek:**\n\n" + details_block + "\n\n")
+            lines.append(f"\n---\n**{get_ui_text('details', language)}:**\n\n" + details_block + "\n\n")
         if entry_md.strip():
             lines.append(f"{entry_md}\n\n")
         chars_here = chars_by_location.get(ent['id'], [])
         if chars_here:
-            lines.append(f"**Karakterek ezen a helyszínen: {md_escape(loc_name)}:**\n\n")
+            lines.append(f"**{get_ui_text('characters_at_location', language)}: {md_escape(loc_name)}:**\n\n")
             for c in sorted(chars_here, key=lambda x: x.get('name') or x['entity'].get('name', '')):
                 ent = c.get('entity', {})
                 c_name = c.get('name') or c['entity'].get('name', 'Unnamed Character')
@@ -606,13 +606,13 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
         entry_md = replace_mentions(entry_cleaned, entity_map)
         details = []
         if is_private_obj(race):
-            details.append("- **Privát:** Igen")
+            details.append(f"- **{get_ui_text('private', language)}:** {get_ui_text('yes', language)}")
         if details:
             # Ensure a blank line before the list
             details_block = '\n'.join(details)
             if not details_block.startswith('\n- '):
                 details_block = '\n' + details_block
-            lines.append("\n---\n**Részletek:**\n" + details_block + "\n\n")
+            lines.append(f"\n---\n**{get_ui_text('details', language)}:**\n" + details_block + "\n\n")
         if entry_md.strip():
             lines.append(f"{entry_md}\n\n")
         
@@ -691,7 +691,7 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
             entry_md = replace_mentions(entry_cleaned, entity_map)
             details = []
             if is_private_obj(e):
-                details.append("- **Privát:** Igen")
+                details.append(f"- **{get_ui_text('private', language)}:** {get_ui_text('yes', language)}")
             # Add location as a markdown link if available
             loc_name = None
             if e.get('location_id') and e.get('location_id') in location_by_id:
@@ -699,28 +699,28 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
                 loc_name = loc.get('name') or loc.get('entity', {}).get('name')
             if loc_name:
                 loc_anchor = create_anchor_label(loc_name)
-                details.append(f"- **Tartózkodási hely:** [{md_escape(loc_name)}](#{loc_anchor})")
+                details.append(f"- **{get_ui_text('location', language)}:** [{md_escape(loc_name)}](#{loc_anchor})")
             if 'type' in ent and ent['type']:
-                details.append(f"- **Típus:** {md_escape(ent['type'])}")
+                details.append(f"- **{get_ui_text('type', language)}:** {md_escape(ent['type'])}")
             if ent.get('tags'):
                 tag_names = [tag.get('name', '') for tag in ent.get('tags', [])]
-                details.append(f"- **Címkék:** {', '.join(tag_names)}")
+                details.append(f"- **{get_ui_text('tags', language)}:** {', '.join(tag_names)}")
             if 'age' in e and e['age']:
-                details.append(f"- **Életkor:** {e['age']}")
+                details.append(f"- **{get_ui_text('age', language)}:** {e['age']}")
             if 'gender' in e and  e['gender']:
-                details.append(f"- **Nem:** {e['gender']}")
+                details.append(f"- **{get_ui_text('gender', language)}:** {e['gender']}")
             details_md = ""
             if details:
                 # Ensure a blank line before the list
                 details_block = '\n'.join(details)
                 if not details_block.startswith('\n- '):
                     details_block = '\n' + details_block
-                details_md = "\n\n---\n**Részletek:**\n" + details_block + "\n\n"
+                details_md = f"\n\n---\n**{get_ui_text('details', language)}:**\n" + details_block + "\n\n"
             full_entry = details_md + entry_md
             markdown += f"{full_entry}\n"
             pivot_members = e.get('pivotMembers', [])
             if pivot_members:
-                markdown += "**Családtagok:**\n\n"
+                markdown += f"**{get_ui_text('family_members', language)}:**\n\n"
                 for member in pivot_members:
                     char_id = member.get('character_id')
                     entity_id = character_id_to_entity_id.get(char_id)
@@ -762,11 +762,11 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
         # Add campaign details (only excerpt, no timestamps)
         details = []
         if campaign.get('excerpt'):
-            details.append(f"- **Összefoglaló:** {md_escape(campaign['excerpt'])}")
+            details.append(f"- **{get_ui_text('excerpt', language)}:** {md_escape(campaign['excerpt'])}")
         
         if details:
             details_block = '\n'.join(details)
-            campaign_section.append("\n---\n**Részletek:**\n")
+            campaign_section.append(f"\n---\n**{get_ui_text('details', language)}:**\n")
             campaign_section.append(details_block)
             campaign_section.append("\n")
         
@@ -796,7 +796,7 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
             entry = replace_mentions(entry_cleaned, entity_map)
             details = []
             if is_private_obj(c):
-                details.append("- **Privát:** Igen")
+                details.append(f"- **{get_ui_text('private', language)}:** {get_ui_text('yes', language)}")
             race_name = None
             race_id = None
             if 'character_races' in c and c['character_races']:
@@ -812,16 +812,16 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
             if race_name:
                 if race_id:
                     race_anchor = create_anchor_label(race_name)
-                    details.append(f"- **Faj:** [{md_escape(race_name)}](#{race_anchor})")
+                    details.append(f"- **{get_ui_text('race', language)}:** [{md_escape(race_name)}](#{race_anchor})")
                 else:
-                    details.append(f"- **Faj:** {md_escape(race_name)}")
+                    details.append(f"- **{get_ui_text('race', language)}:** {md_escape(race_name)}")
             loc_name = None
             if c.get('location_id') and c.get('location_id') in location_by_id:
                 loc = location_by_id[c['location_id']]
                 loc_name = loc.get('name') or loc.get('entity', {}).get('name')
             if loc_name:
                 loc_anchor = create_anchor_label(loc_name)
-                details.append(f"- **Tartózkodási hely:** [{md_escape(loc_name)}](#{loc_anchor})")
+                details.append(f"- **{get_ui_text('location', language)}:** [{md_escape(loc_name)}](#{loc_anchor})")
             family_name = None
             family_id = None
             if 'character_families' in c and c['character_families']:
@@ -837,25 +837,25 @@ def generate_worldbook(entities: dict, include_private=False, include_posts=True
             if family_name:
                 if family_id:
                     family_anchor = create_anchor_label(family_name)
-                    details.append(f"- **Család:** [{md_escape(family_name)}](#{family_anchor})")
+                    details.append(f"- **{get_ui_text('family', language)}:** [{md_escape(family_name)}](#{family_anchor})")
                 else:
-                    details.append(f"- **Család:** {md_escape(family_name)}")
+                    details.append(f"- **{get_ui_text('family', language)}:** {md_escape(family_name)}")
             if c.get('age'):
-                details.append(f"- **Életkor:** {md_escape(str(c['age']))}")
+                details.append(f"- **{get_ui_text('age', language)}:** {md_escape(str(c['age']))}")
             if c.get('sex'):
-                details.append(f"- **Nem:** {md_escape(str(c['sex']))}")
+                details.append(f"- **{get_ui_text('gender', language)}:** {md_escape(str(c['sex']))}")
             elif c.get('gender'):
-                details.append(f"- **Nem:** {md_escape(str(c['gender']))}")
+                details.append(f"- **{get_ui_text('gender', language)}:** {md_escape(str(c['gender']))}")
             is_dead = c.get('is_dead') or c_ent.get('is_dead')
             if is_dead:
-                details.append(f"- **Halott:** Igen")
+                details.append(f"- **{get_ui_text('dead', language)}:** {get_ui_text('yes', language)}")
             details_md = ""
             if details:
                 # Ensure a blank line before the list
                 details_block = '\n'.join(details)
                 if not details_block.startswith('\n- '):
                     details_block = '\n' + details_block
-                details_md = "\n\n---\n**Részletek:**\n" + details_block + "\n\n"
+                details_md = f"\n\n---\n**{get_ui_text('details', language)}:**\n" + details_block + "\n\n"
             chars_section.append(f"## {md_escape(c_name)} ((++{anchor}))\n\n")
             
             # Add character image if available

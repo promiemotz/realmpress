@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.2] - 2025-08-16
 
+##Added
+- Some picture for the readme.md
+
+### Fixed
+- Some error with the Localiztion
+
+## [v1.2] - 2025-08-16
+
 ### Added
 - Support for post handling
 - Images
@@ -14,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Restructured documentation for better organization
+- Automatic solutionfor handling  if your OAuth token Expires
 
 ### Fixed
 - Some error handling for specific cases
